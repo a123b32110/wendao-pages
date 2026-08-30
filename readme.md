@@ -1,5 +1,11 @@
 # 问道：今日踏仙路
 
+> **原始專案／出處**
+>
+> 本倉庫基於 [ypyik0669/wendao](https://github.com/ypyik0669/wendao) 改作；原作者為 [ypyik0669](https://github.com/ypyik0669)。本版本新增 GitHub Pages 單機遊玩適配。
+>
+> 原始程式碼著作權歸原作者所有，並沿用倉庫內的 [MIT License](./LICENSE)。
+
 > 从凡人到仙人。挂机修炼、渡劫、游历奇遇、炼丹炼器、论道竞技、宗门、世界 BOSS、赛季榜单、寿元与轮回。
 
 ## 怎么玩
