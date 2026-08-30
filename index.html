@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f1a">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%230b0f1a'/%3E%3Ccircle cx='32' cy='32' r='22' fill='none' stroke='%23d6b36a' stroke-width='3'/%3E%3Cpath d='M18 34c8-18 20-18 28 0-8 18-20 18-28 0Z' fill='%23d6b36a'/%3E%3C/svg%3E">
+  <meta name="description" content="問道：今日踏仙路 — 可在 GitHub Pages 遊玩的單機版修仙放置遊戲">
+  <title>問道：今日踏仙路｜單機版</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; margin: 0; background: #080d16; }
+    body { color: #e6e3da; font-family: "Songti TC", "Noto Serif TC", serif; }
+    .standalone-bar {
+      position: relative;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      min-height: 38px;
+      padding: 6px 12px;
+      border-bottom: 1px solid rgba(214, 179, 106, .3);
+      background: #0d1620;
+      color: #b9c1ca;
+      font-size: 12px;
+      text-align: center;
+    }
+    .standalone-bar strong { color: #f3e2b3; letter-spacing: .12em; }
+    .standalone-bar .spacer { flex: 1; max-width: 24px; }
+    .standalone-bar button {
+      border: 1px solid rgba(214, 179, 106, .45);
+      border-radius: 3px;
+      padding: 4px 8px;
+      background: #162331;
+      color: #e6e3da;
+      cursor: pointer;
+      font: inherit;
+    }
+    .standalone-bar button:hover { border-color: #d6b36a; color: #f3e2b3; }
+    #game-root { min-height: calc(100vh - 38px); }
+    .loading, .fatal {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 48px 24px;
+      color: #b9c1ca;
+      text-align: center;
+      line-height: 1.8;
+    }
+    .fatal { color: #efb3a8; white-space: pre-wrap; }
+    @media (max-width: 560px) {
+      .standalone-bar { flex-wrap: wrap; gap: 6px 8px; }
+      .standalone-bar .spacer { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="standalone-bar" aria-label="單機版狀態列">
+    <strong>GitHub Pages 單機版</strong>
+    <span>存檔只保存在目前瀏覽器，不與 NodeLoc 互通</span>
+    <span class="spacer" aria-hidden="true"></span>
+    <button id="export-save" type="button">下載存檔</button>
+    <button id="reset-save" type="button">重置存檔</button>
+  </header>
+  <main id="game-root">
+    <div class="loading">正在接引天機……</div>
+  </main>
+  <script type="module" src="./standalone.js"></script>
+</body>
+</html>
