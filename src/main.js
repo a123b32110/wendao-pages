@@ -7181,11 +7181,16 @@ const keepAtk=(v)=>{
 const list=(v.list??[]).filter((x)=>now-(x.t??0)<ATK_KEEP);
 return!list.length?null:list.length===(v.list??[]).length?v:{uid:v.uid,list};
 };
+let newBuckets=0;
 const foldBucket=(bk,pfx,keyOf,keep,age)=>{
 if(room()<4)return;
 
 
-if(!shared.has(bk)&&!sharedRoomFor(shared,bk,4))return;
+
+if(!shared.has(bk)){
+if(shared.size>=JAN_KEY_CAP||(tight&&newBuckets>=1))return;
+newBuckets++;
+}
 const cur=shared.get(bk)?.d??{};
 const next={};
 let changed=false;
