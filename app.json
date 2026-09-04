@@ -2,7 +2,7 @@
   "slug": "wendao",
   "name": "问道：今日踏仙路",
   "entry": "src/main.js",
-  "scopes": ["kv", "kv.shared", "points", "schedule", "webview"],
+  "scopes": ["kv", "kv.shared", "points", "points.spend", "schedule", "webview"],
   "surface": "webview",
   "placement": "single",
   "triggers": ["post_created", "post_liked"]

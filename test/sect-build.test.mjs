@@ -161,14 +161,16 @@ test("sect: 周宗务只冻结一次，参与者得赏且不重复", async () =>
   assert.deepEqual(agg.last.goals, { don: 400, sb: 16, aw: 10 }); // sb 记出手次数，不是威能
   const frozen = JSON.stringify(agg.last);
   // 参与者领赏
-  const ls0 = site.char(20).ls, pts0 = site.shared.get("sc:20").pts;
+  // v37 起 sc: 散键会被折进 sx: 桶再当冗余删掉 —— 读贡献一律走 scOf（散键优先、桶兜底）
+  const { scOf } = await import("../lib/game/shared.js");
+  const ls0 = site.char(20).ls, pts0 = scOf(site.shared, 20).pts;
   v = await site.call(20, "home");
   const note = v.notes.find((n) => n.k === "sect" && /上周宗务/.test(n.v));
   assert.ok(note, "有结算提示");
   assert.match(note.v, /达成 1\/3/);
   assert.match(note.v, new RegExp(`${300 + 100 * 2} 灵石`)); // n×(300+100×境界)
   assert.ok(site.char(20).ls >= ls0 + 500, "灵石到账（同一次请求还带了当日入定的钱）");
-  assert.equal(site.shared.get("sc:20").pts, pts0 + 30, "贡献 +30n");
+  assert.equal(scOf(site.shared, 20).pts, pts0 + 30, "贡献 +30n");
   assert.equal(site.char(20).sectWeek, weekKey(site.now) - 1);
   // 不重复
   const ls1 = site.char(20).ls;

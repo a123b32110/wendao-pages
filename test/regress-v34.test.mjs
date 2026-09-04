@@ -45,7 +45,7 @@ test("坊市：补货后仍买不到今天已经买光的东西（刷新不能�
   if (after) assert.equal(after.left, 0, "刷新出来还是同一件的话，存货必须仍是 0");
 });
 
-test("能量供奉：扣的是真能量（负数 award），每日封顶，余额不够干净地拒", async () => {
+test("能量供奉：用 points.spend 真扣能量，每日封顶，余额不够干净地拒", async () => {
   const { ENERGY_DAILY, lsPerEnergy } = await import("../lib/game/energy.js");
   const s = new Site();
   await s.call(3, "boot", {});
@@ -60,6 +60,11 @@ test("能量供奉：扣的是真能量（负数 award），每日封顶，余�
   assert.equal(r.ok, true, r.msg);
   assert.equal(s.char(3).ls - ls0, 2 * lsPerEnergy(s.char(3).r), "灵石按汇率入账");
   assert.equal(s.points.get(3), 8, "论坛能量真的被扣掉了");
+  // 平台要的是 points.spend + label + 幂等 request_id，不是负数 award（实测负数会被整批拒）
+  const sp = s.log.filter((x) => x.spend).at(-1);
+  assert.ok(sp && sp.spend.type === "points.spend" && sp.spend.amount === 2, "用的是 points.spend 正数");
+  assert.match(sp.spend.request_id, /^wd-3-\d+$/, "每笔一个幂等键");
+  assert.ok(sp.spend.label.length >= 1 && sp.spend.label.length <= 100, "label 必须 1-100 字");
   // 每日封顶
   const over = await s.call(3, "energy.offer", { n: ENERGY_DAILY });
   assert.equal(over.ok, false);
@@ -142,4 +147,105 @@ test("渡劫：面板给出每种应对的预估伤害，失败不跌境且下�
     assert.ok((c.tribStreak ?? 0) >= 1, "失败要累计减伤");
     assert.match(r.msg, /下次雷劫伤害 -\d+%/);
   }
+});
+
+test("v37 宗门贡献折叠进 sx: 桶：散键清掉后贡献、库藏、周结算全都还认得", async () => {
+  const { scOf } = await import("../lib/game/shared.js");
+  const s = new Site();
+  const ids = [40, 41, 42];
+  for (const uid of ids) {
+    await s.call(uid, "boot", {});
+    await s.call(uid, "create", { name: "宗徒" + uid });
+    s.setChar(uid, (c) => { c.r = 2; c.ls = 60000; });
+  }
+  let r = await s.call(40, "sect.create", { name: "折叠宗", desc: "测试" });
+  assert.equal(r.ok, true, r.msg);
+  const sid = s.char(40).sect;
+  for (const uid of [41, 42]) assert.equal((await s.call(uid, "sect.join", { sid })).ok, true);
+  for (const uid of ids) assert.equal((await s.call(uid, "sect.donate", { amt: 1000 })).ok, true);
+  const fundsBefore = ids.reduce((t, u) => t + (scOf(s.shared, u)?.pts ?? 0), 0);
+  assert.ok(fundsBefore > 0, "捐献记下了贡献");
+  // 折叠 + 冗余清扫（散键要过 1 小时才算冗余）
+  s.advance(2 * HOUR);
+  s.shared.set("world", { ...(s.shared.get("world") ?? {}), tickAt: s.now - 3 * HOUR });
+  await s.tick();
+  s.advance(600_000);
+  s.shared.set("world", { ...(s.shared.get("world") ?? {}), tickAt: s.now - 3 * HOUR });
+  await s.tick();
+  for (const uid of ids) assert.equal(s.shared.has(`sc:${uid}`), false, `sc:${uid} 折叠后清掉`);
+  for (const uid of ids) assert.ok(scOf(s.shared, uid)?.pts > 0, `uid ${uid} 的贡献还在桶里`);
+  // 库藏与成员榜从桶里读得出来
+  const v = await s.call(40, "sect");
+  assert.equal(v.ok, true, v.msg);
+  assert.ok(v.data.sect.treasury > 0, `库藏要认折叠值，实际 ${v.data.sect.treasury}`);
+  // 再捐一次：以桶为底累加，旧贡献不丢
+  const before = scOf(s.shared, 41).pts;
+  assert.equal((await s.call(41, "sect.donate", { amt: 1000 })).ok, true);
+  assert.ok(scOf(s.shared, 41).pts > before, "续捐从桶接种，旧贡献不丢");
+});
+
+test("v37 全站在拍闸门：顶到上限后礼貌拒绝，不让拍卖把共享区吃穿", async () => {
+  const { AUC_GLOBAL_CAP } = await import("../lib/game/auction.js");
+  const s = new Site();
+  const day = 0;
+  // 直接摆满在拍的坑位（模拟全站热闹）
+  for (let i = 0; i < AUC_GLOBAL_CAP; i++) s.shared.set(`auction:900${i}:1`, { aid: `900${i}:1`, uid: 900 + i, n: "别人", item: { k: "mat", id: "m_lingcao", name: "灵草", n: 1, t: 0 }, min: 10, end: s.now + 3600_000, t: s.now });
+  await s.call(50, "boot", {});
+  await s.call(50, "create", { name: "晚来者" });
+  s.setChar(50, (c) => { c.r = 2; c.ls = 50000; c.inv.stack.m_lingcao = 3; });
+  const r = await s.call(50, "auction.create", { item: { id: "m_lingcao", n: 1 }, min: 100 });
+  assert.equal(r.ok, false, "满了要拒绝");
+  assert.match(r.msg, /坊市摊位已满/);
+  assert.equal(s.char(50).inv.stack.m_lingcao, 3, "被拒时东西一件不少");
+  // 落槌一件就腾出位子
+  const k = `auction:9000:1`;
+  s.shared.set(k, { ...s.shared.get(k), settled: { winner: null, price: 0 } });
+  const ok = await s.call(50, "auction.create", { item: { id: "m_lingcao", n: 1 }, min: 100 });
+  assert.equal(ok.ok, true, `腾出位子就该能上：${ok.msg}`);
+});
+
+test("v37 配额顶满时不许再新建桶键：整批被拒就永远腾不出地方（死锁）", async () => {
+  const { JAN_KEY_CAP } = await import("../lib/game/janitor.js");
+  const s = new Site();
+  await s.call(60, "boot", {});
+  await s.call(60, "create", { name: "堵门人" });
+  const day = 0;
+  // 把共享区塞到刚好满，且塞的全是「清扫删得掉」的旧棋局分
+  let u = 5000;
+  while (s.shared.size < JAN_KEY_CAP) s.shared.set(`wx:${day}:${u++}`, { uid: u, sc: 1 });
+  assert.equal(s.shared.size, JAN_KEY_CAP);
+  const newBuckets = () => [...s.shared.keys()].filter((k) => /^(px|ax|sx):/.test(k)).length;
+  const before = newBuckets();
+  s.shared.set("world", { ...(s.shared.get("world") ?? {}), tickAt: s.now - 3 * 3600_000 });
+  const out = await s.tick();
+  const fx = out.effects ?? [];
+  const adds = fx.filter((e) => e.type === "kv.shared.set" && /^(px|ax|sx):/.test(e.key) && !s.shared.has(e.key));
+  assert.equal(adds.length, 0, "满配额那一轮一个新桶键都不许建");
+  assert.ok(fx.some((e) => e.type === "kv.shared.delete"), "但该删的照删，先把地方腾出来");
+  assert.ok(s.shared.size < JAN_KEY_CAP, `腾出空位了：${s.shared.size}`);
+  // 有了空位，下一轮才建桶
+  s.shared.set("world", { ...(s.shared.get("world") ?? {}), tickAt: s.now - 3 * 3600_000 });
+  await s.tick();
+  assert.ok(newBuckets() >= before, "腾开之后折叠继续推进");
+});
+
+test("v39 配额顶满时折叠不能停：它是清扫的货源，停了键数就永远下不来", async () => {
+  const { JAN_KEY_CAP } = await import("../lib/game/janitor.js");
+  const s = new Site();
+  // 一屋子「刚刚还在线」的档案散键：闲置清理动不了它们，只有「折进桶 → 当冗余删」这条路
+  for (let i = 0; i < 30; i++) {
+    const uid = 3000 + i * 8; // 全落 px:0
+    s.shared.set(`p:${uid}`, { uid, n: "甲" + i, t: s.now, pw: 1 });
+  }
+  s.shared.set("px:0", { d: {} }); // 桶已存在（线上就是这样）：顶满时不许新建键，但已有的桶要继续更新
+  let u = 9000;
+  while (s.shared.size < JAN_KEY_CAP) s.shared.set(`sect:x${u++}`, { sid: "x", name: "占位", leader: u });
+  assert.ok(s.shared.size >= JAN_KEY_CAP, "先把共享区顶满");
+  s.shared.set("world", { tickAt: s.now - 3 * 3600_000 });
+  const out = await s.tick();
+  const fx = out.effects ?? [];
+  assert.ok(fx.some((e) => e.type === "kv.shared.set" && e.key === "px:0"), "已存在的桶还要继续折叠——它是清扫的货源");
+  assert.ok(fx.filter((e) => e.type === "kv.shared.delete").length > 0, "清扫必须真的删到东西");
+  assert.ok(s.shared.size < JAN_KEY_CAP, `键数要降下来：${s.shared.size}`);
+  assert.ok(Object.keys(s.shared.get("px:0").d).length > 0, "被删的散键，人还在桶里");
 });

@@ -98,8 +98,24 @@ return shared.has(key)||shared.size<SHARED_KEY_CAP-margin;
 
 const PX_BUCKETS=8;
 const AX_BUCKETS=4;
+const SX_BUCKETS=4;
 const pxKey=(uid)=>`px:${(Math.abs(Number(uid)) || 0) % PX_BUCKETS}`;
 const axKey=(uid)=>`ax:${(Math.abs(Number(uid)) || 0) % AX_BUCKETS}`;
+const sxKey=(uid)=>`sx:${(Math.abs(Number(uid)) || 0) % SX_BUCKETS}`;
+
+
+function scOf(shared,uid){
+return shared.get(`sc:${uid}`)??shared.get(sxKey(uid))?.d?.[String(uid)]??null;
+}
+function scAll(shared){
+const m=new Map();
+for(let b=0;b<SX_BUCKETS;b++){
+const d=shared.get(`sx:${b}`)?.d;
+if(d)for(const u of Object.keys(d))m.set(u,d[u]);
+}
+for(const e of byPrefix(shared,"sc:"))if(e.value&&e.value.uid!==undefined)m.set(String(e.value.uid),e.value);
+return[...m.values()];
+}
 function profileOf(shared,uid){
 return shared.get(`p:${uid}`)??shared.get(pxKey(uid))?.d?.[String(uid)]??null;
 }
@@ -2855,6 +2871,10 @@ return{ok:true,msg:`买下 ${d.name}，花费 ${price} 灵石`};
 // ---- lib/game/auction.js
 const AUCTION_HOURS=24;
 const MAX_ACTIVE=5;
+
+
+
+const AUC_GLOBAL_CAP=20;
 const FEE=0.05;
 function bidsFor(shared,aid){
 return byPrefix(shared,`bid:${aid}:`).map((e)=>e.value).filter((b)=>b&&typeof b.amt==="number");
@@ -2919,6 +2939,8 @@ if(!sharedRoomFor(shared,`auction:${c.uid}:${(c.aucN ?? 0) + 1}`))return{ok:fals
 min=Math.floor(Number(min)||0);
 if(min<1||min>10_000_000)return{ok:false,msg:"起拍价无效"};
 if(c.r<1)return{ok:false,msg:"筑基后方可上拍"};
+const live=byPrefix(shared,"auction:").filter((e)=>e.value&&!e.value.settled).length;
+if(live>=AUC_GLOBAL_CAP)return{ok:false,msg:`坊市摊位已满（全站同时在拍 ${AUC_GLOBAL_CAP} 件），等有货落槌再来`};
 
 
 const mine=byPrefix(shared,`auction:${c.uid}:`).filter((e)=>e.value&&!c.aucDone?.[e.value.aid]);
@@ -3058,7 +3080,7 @@ return{k:w?.k??0,...cur,goals:g,done:(cur.don>=g.don?1:0)+(cur.sb>=g.sb?1:0)+(cu
 function bumpSc(c,shared,effects,now,o={}){
 if(!c.sect)return null;
 const wk=weekKey(now);
-const cur=shared.get(`sc:${c.uid}`);
+const cur=scOf(shared,c.uid); 
 const same=!!(cur&&cur.sect===c.sect);
 const pts=(same?cur.pts??0:0)+(o.pts??0);
 const fresh=same&&cur.wk&&cur.wk.k===wk;
@@ -3204,7 +3226,7 @@ return{ok:true,msg:"已办妥"};
 
 function sectFunds(shared,sid,s){
 let total=0;
-for(const e of byPrefix(shared,"sc:")){const v=e.value;if(v&&v.sect===sid)total+=v.pts??0;}
+for(const v of scAll(shared))if(v&&v.sect===sid)total+=v.pts??0;
 const spent=(s??sectOf(shared,sid))?.spent??0;
 return{total,spent,treasury:Math.max(0,total-spent)};
 }
@@ -3251,7 +3273,7 @@ if(!last||typeof last.k!=="number")return null;
 if(last.k!==weekKey(now)-1)return null;
 if((c.sectWeek??-1)>=last.k)return null;
 c.sectWeek=last.k;
-const sc=shared.get(`sc:${c.uid}`);
+const sc=scOf(shared,c.uid);
 const mine=sc&&sc.sect===c.sect?(sc.wk?.k===last.k?sc.wk:sc.wkp?.k===last.k?sc.wkp:null):null;
 if(!mine||(mine.don??0)+(mine.sb??0)+(mine.aw??0)<=0)return null;
 const n=last.done??0;
@@ -3270,8 +3292,7 @@ const members=profiles(shared).filter((p)=>p.sect===sid).sort((a,b)=>(b.pw??0)-(
 const contrib={};
 const wk=weekKey(now);
 const cur={don:0,sb:0,aw:0};
-for(const e of byPrefix(shared,"sc:")){
-const v=e.value;
+for(const v of scAll(shared)){
 if(!v||v.sect!==sid)continue;
 contrib[String(v.uid)]=v.pts;
 if(v.wk&&v.wk.k===wk){cur.don+=v.wk.don??0;cur.sb+=v.wk.sb??0;cur.aw+=v.wk.aw??0;}
@@ -3304,8 +3325,7 @@ let used=0;
 const wk=weekKey(now);
 const totals={},week={},prev={};
 const bucket=(map,sid,k)=>(map[sid]??={k,don:0,sb:0,aw:0});
-for(const e of byPrefix(shared,"sc:")){
-const v=e.value;
+for(const v of scAll(shared)){
 if(!v?.sect)continue;
 totals[v.sect]=(totals[v.sect]??0)+(v.pts??0);
 const w=bucket(week,v.sect,wk),p=bucket(prev,v.sect,wk-1);
@@ -3816,6 +3836,7 @@ return{key:g.key,title:g.title,lines,ls,wu:g.wu??0};
 
 // ---- lib/game/energy.js
 const ENERGY_DAILY=5; 
+const ENERGY_MAX_PER_CALL=100; 
 
 
 const lsPerEnergy=(r)=>5000+5000*Math.max(0,r|0);
@@ -3834,15 +3855,19 @@ n=Math.max(1,Math.floor(Number(n)||0));
 const used=c.daily.energy??0;
 if(used>=ENERGY_DAILY)return{ok:false,msg:`今日供奉已满 ${ENERGY_DAILY} 点能量，明日再来`};
 if(n>ENERGY_DAILY-used)return{ok:false,msg:`今日最多还能供奉 ${ENERGY_DAILY - used} 点能量`};
+if(n>ENERGY_MAX_PER_CALL)return{ok:false,msg:`一次最多供奉 ${ENERGY_MAX_PER_CALL} 点能量`};
 if((balance|0)<n)return{ok:false,msg:`你只有 ${Math.max(0, balance | 0)} 点能量`};
 const rate=lsPerEnergy(c.r);
 const ls=rate*n;
 c.ls+=ls;
 c.daily.energy=used+n;
+
+
+c.enN=(c.enN??0)+1;
 return{
 ok:true,
 msg:`供奉 ${n} 点能量，天机阁回赠灵石 +${ls}`,
-effect:{type:"points.award",amount:-n,reason:`问道：供奉 ${n} 点能量换取灵石`},
+effect:{type:"points.spend",amount:n,label:`问道：供奉 ${n} 点能量换 ${ls} 灵石`.slice(0,100),request_id:`wd-${c.uid}-${c.enN}`},
 };
 }
 
@@ -6379,15 +6404,21 @@ if(fv&&(fv[field]??0)>=(e.value?.[field]??0))yield e.key;
 }
 
 
-const FOLD_IDLE=3600_000;
+
+
+const FOLD_IDLE=shared.size>=JAN_KEY_CAP-5?0:3600_000;
 for(const e of byPrefix(shared,"p:")){
 const fv=e.value&&shared.get(pxKey(e.value.uid))?.d?.[String(e.value.uid)];
-if(fv&&(fv.t??0)>=(e.value.t??0)&&now-(e.value.t??0)>FOLD_IDLE)yield e.key;
+if(fv&&(fv.t??0)>=(e.value.t??0)&&now-(e.value.t??0)>=FOLD_IDLE)yield e.key;
 }
 const maxT=(rec)=>Math.max(0,...(rec?.list??[]).map((x)=>x.t??0));
 for(const e of byPrefix(shared,"atk:")){
 const fv=e.value&&shared.get(axKey(e.value.uid))?.d?.[String(e.value.uid)];
-if(fv&&maxT(fv)>=maxT(e.value)&&now-maxT(e.value)>FOLD_IDLE)yield e.key;
+if(fv&&maxT(fv)>=maxT(e.value)&&now-maxT(e.value)>=FOLD_IDLE)yield e.key;
+}
+for(const e of byPrefix(shared,"sc:")){
+const fv=e.value&&shared.get(sxKey(e.value.uid))?.d?.[String(e.value.uid)];
+if(fv&&(fv.t??0)>=(e.value.t??0)&&now-(e.value.t??0)>=FOLD_IDLE)yield e.key;
 }
 
 for(const e of byPrefix(shared,"wxb:"))if(Number(e.key.slice(4))<day)yield e.key;
@@ -7099,11 +7130,18 @@ effects.push({type:"schedule.add",job_key:"tick2",in_seconds:20});
 function botWork(shared,now,effects,budget,tickAt){
 const base=effects.length;
 const room=()=>budget-(effects.length-base)-1; 
+
+
+
+
+const tight=shared.size>=JAN_KEY_CAP-5;
+if(!tight){
 botSettleAuctions(shared,now,effects,room());
 botAggregateSects(shared,effects,now,room());
 
 const cur=seasonOf(now);
 if(cur.n>0&&room()>=1&&sharedRoomFor(shared,`season:${cur.n - 1}:result`))botRolloverSeason(shared,now,effects);
+}
 
 
 const day0=dayKey(now);
@@ -7145,6 +7183,9 @@ return!list.length?null:list.length===(v.list??[]).length?v:{uid:v.uid,list};
 };
 const foldBucket=(bk,pfx,keyOf,keep,age)=>{
 if(room()<4)return;
+
+
+if(!shared.has(bk)&&!sharedRoomFor(shared,bk,4))return;
 const cur=shared.get(bk)?.d??{};
 const next={};
 let changed=false;
@@ -7175,6 +7216,9 @@ if(changed){setShared(effects,bk,{d:next});shared.set(bk,{d:next});}
 };
 for(let b=0;b<PX_BUCKETS;b++)foldBucket(`px:${b}`,"p:",pxKey,keepProfile,(v)=>v.t??0);
 for(let b=0;b<AX_BUCKETS;b++)foldBucket(`ax:${b}`,"atk:",axKey,keepAtk,maxT);
+
+
+for(let b=0;b<SX_BUCKETS;b++)foldBucket(`sx:${b}`,"sc:",sxKey,(v)=>v,(v)=>v.t??0);
 const jan=janitorSweep(shared,now,effects,undefined,undefined,Math.max(0,room()));
 
 const chunk=effects.splice(base);
@@ -7571,7 +7615,7 @@ effects.push({type:"kv.delete",key:"c"},{type:"kv.delete",key:"arts"},{type:"kv.
 if(shared.has(`sect:s${uid}`))effects.push({type:"kv.shared.delete",key:`sect:s${uid}`});
 for(const k of shared.keys())if(k.startsWith(`auction:${uid}:`)||k===`atk:${uid}`||k===`act:${uid}`||k===`sc:${uid}`||(/^(wx|bd|sbd):/.test(k)&&k.endsWith(":"+uid)))effects.push({type:"kv.shared.delete",key:k});
 
-for(const bk of[pxKey(uid),axKey(uid)]){
+for(const bk of[pxKey(uid),axKey(uid),sxKey(uid)]){
 const d=shared.get(bk)?.d;
 if(d&&d[String(uid)]!==undefined){const nd={...d};delete nd[String(uid)];effects.push({type:"kv.shared.set",key:bk,value:{d:nd}});}
 }

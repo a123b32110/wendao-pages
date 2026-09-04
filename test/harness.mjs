@@ -35,6 +35,20 @@ export class Site {
         case "kv.shared.set": this.shared.set(e.key, structuredClone(e.value)); break;
         case "kv.shared.delete": this.shared.delete(e.key); break;
         case "points.award": this.points.set(uid, (this.points.get(uid) ?? 0) + e.amount); this.log.push({ uid, award: e }); break;
+        // 平台实测规格（2026-08-25 探针）：需 points.spend 权限，字段 {amount,label(1-100),request_id}，
+        // 单次上限 100，同 request_id 幂等。任一条不满足平台整批拒收。
+        case "points.spend": {
+          if (!(Number.isInteger(e.amount) && e.amount > 0 && e.amount <= 100)) throw new Error("E_POINTS_QUOTA");
+          if (!e.label || e.label.length < 1 || e.label.length > 100) throw new Error("E_INVALID_EFFECT: label");
+          if (!/^[a-zA-Z0-9-]{1,64}$/.test(String(e.request_id ?? ""))) throw new Error("E_INVALID_EFFECT: request_id");
+          this.spent = this.spent ?? new Set();
+          if (this.spent.has(e.request_id)) break; // 幂等：同键只扣一次
+          this.spent.add(e.request_id);
+          if ((this.points.get(uid) ?? 0) < e.amount) throw new Error("E_POINTS_QUOTA: balance");
+          this.points.set(uid, (this.points.get(uid) ?? 0) - e.amount);
+          this.log.push({ uid, spend: e });
+          break;
+        }
         case "schedule.add": this.schedule.push(e); break;
         case "schedule.cancel": break;
         case "rt.publish": case "ui.toast": case "ui.navigate": break;
