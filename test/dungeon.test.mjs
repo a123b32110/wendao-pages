@@ -134,7 +134,7 @@ test("秘境: 收手 banks loot, xp is capped, hpP follows the run, dgBest is wr
   assert.equal(c.dg, null);
   assert.equal(c.inv.stack.m_lingcao, 7);
   assert.equal(c.inv.arts.length, 1);
-  assert.ok(c.gfs.includes("g_qingfeng"), "books are learned on banking");
+  assert.equal(c.inv.stack.b_g_qingfeng, 1, "books come out as 秘籍 items on banking (v51)");
   assert.equal(c.ls, ls0 + 250);
   assert.ok(c.xp <= need * 1.5 + 0.001, "xp respects the realm cap");
   assert.equal(Math.round(c.hpP * 100), 42);

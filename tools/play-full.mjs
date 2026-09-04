@@ -116,6 +116,7 @@ await step("择道 剑修", async () => {
   await expect(/剑修/, "path tag"); await shot("path");
 });
 await step("游历 青山村 ×3 (events, battles, replay)", async () => {
+  await tab("游历"); await expect(/妖潮/, "妖潮 hint on explore page");
   await dev("dev.give", { st: 20, heal: 1 }); await reload(); await tab("游历"); await shot("explore");
   let fights = 0;
   for (let i = 0; i < 3; i++) {
@@ -145,10 +146,16 @@ await step("行囊: 使用/装备/功法神通/炼制", async () => {
   await click("使用", "#app", 1200); await expect(/服下|气血/, "use pill");
   await click("法宝", "#app"); await click("装备", "#app"); await expect(/已装备：武器 精铁剑|卸下/, "equip"); await shot("arts");
   await click("功法神通", "#app"); await expect(/太玄吐纳诀/, "skills");
+  // v51：秘籍 → 学 → 封存 → 行囊里出现典籍
+  await dev("dev.give", { items: { b_g_chiyan: 1 } });
+  const used = await call("use", { id: "b_g_chiyan" }); if ((used?.result ?? used)?.ok === false) throw new Error("use book failed: " + JSON.stringify(used).slice(0, 160));
+  await reload(); await tab("行囊"); await click("功法神通", "#app"); await expect(/赤炎真经/, "learned from book");
+  await click("封存", "#app", 800); await okModal(); await expect(/已封存成册|典籍/, "sealed"); await shot("seal");
+  await click("物品", "#app"); await expect(/典籍/, "book in bag");
   await click("炼制", "#app"); await expect(/炼丹/, "recipes"); await click("开炉", "#app", 1500); await expect(/炼成|失败|开炉/, "craft"); await shot("craft");
 });
 await step("坊市: 买 + 上拍 + 拍卖行", async () => {
-  await tab("坊市"); await shot("market");
+  await tab("坊市"); await shot("market"); await expect(/权益|珍宝阁/, "vip table teaser on locked 珍宝阁");
   await click("买", "#app", 1500); await expect(/买下|购得|余/, "buy");
   await tab("行囊"); await click("上拍", "#app", 800);
   if (!(await overlayOpen())) throw new Error("auction form did not open");

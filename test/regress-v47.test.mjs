@@ -91,8 +91,8 @@ test("会员权益：补货次数、第四张悬赏、离线上限、手续费�
   await setup(s, 5, "王者", (c) => { c.r = 2; c.ls = 100000; });
   const c0 = s.char(5);
   assert.equal(shopReLimit({ ...c0, vip: 0 }), 3); assert.equal(shopReLimit({ ...c0, vip: 1 }), 4);
-  assert.equal(offlineCapMs({ ...c0, vip: 2 }) - offlineCapMs({ ...c0, vip: 1 }), 4 * HOUR);
-  assert.equal(lsPerEnergy(2, 4), Math.round(lsPerEnergy(2, 3) * 1.2));
+  assert.equal(offlineCapMs({ ...c0, vip: 2 }) - offlineCapMs({ ...c0, vip: 1 }), 4 * HOUR); // 白银 +2h → 黄金 +6h
+  assert.equal(lsPerEnergy(2, 4), Math.round(lsPerEnergy(2, 0) * 1.5)); assert.equal(lsPerEnergy(2, 3), Math.round(lsPerEnergy(2, 0) * 1.25));
   // 挂上王者，看各视图
   setEn(s, 5, 100);
   let v = await s.call(5, "home");
@@ -102,9 +102,9 @@ test("会员权益：补货次数、第四张悬赏、离线上限、手续费�
   v = await s.call(5, "bounty");
   assert.equal(v.data.bounty.list.length, 4, "白银及以上每天四张悬赏");
   v = await s.call(5, "dg");
-  assert.equal(v.data.dg.limit, 3, "钻石及以上秘境 +1");
+  assert.equal(v.data.dg.limit, 4, "王者秘境 +2");
   v = await s.call(5, "farm");
-  assert.equal(v.data.farm.n, 5, "灵田 +1（金丹 4 块 + 会员 1 块）");
+  assert.equal(v.data.farm.n, 5, "灵田封顶 5（金丹 4 块 + 王者 2 块，FM_MAX 5）");
   // 坊市九五折
   const shop0 = (await s.call(5, "shop")).data.shop;
   setEn(s, 5, 0);
@@ -143,7 +143,7 @@ test("珍宝阁：凡人看不到货，等级越高货越多且确定；买入�
   setEn(s, 6, 100);
   v = await s.call(6, "vshop");
   assert.equal(v.data.vshop.lv, 4);
-  assert.equal(v.data.vshop.stock.length, 4);
+  assert.equal(v.data.vshop.stock.length, 8, "王者八格");
   const first = v.data.vshop.stock[0];
   const ls0 = s.char(6).ls;
   let r = await s.call(6, "vshop.buy", { idx: first.idx });
@@ -159,7 +159,7 @@ test("珍宝阁：凡人看不到货，等级越高货越多且确定；买入�
     if (!st) continue;
     s.setChar(6, (c) => { c.daily.vshop = {}; c.inv.arts = []; });
     const rr = await s.call(6, "vshop.buy", { idx: st.idx }); // 用今天的 idx 可能对不上，只检查不会崩
-    if (rr.ok) { const it = s.char(6).inv.arts[0]; if (it) assert.ok(it.q >= 2, "保底两星"); }
+    if (rr.ok) { const it = s.char(6).inv.arts[0]; if (it) assert.ok(it.q >= 3, "王者保底三星"); }
     break;
   }
 });
