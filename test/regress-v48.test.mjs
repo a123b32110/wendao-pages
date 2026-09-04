@@ -63,7 +63,7 @@ test("新道具：改名玉牒、洗髓丹、闭关符、催生符、聚灵香",
   const root0 = JSON.stringify(s.char(2).root);
   r = await s.call(2, "use", { id: "p_xisui" });
   assert.equal(r.ok, true, r.msg);
-  assert.ok(s.char(2).root && (JSON.stringify(s.char(2).root) !== root0 || true), "灵根重掷（可能撞同样的）");
+  assert.match(r.msg, /灵根重定/, "走的是洗髓分支，不是普通丹药分支");
   assert.equal(s.char(2).inv.stack.p_xisui, undefined);
   const cap0 = offlineCapMs(s.char(2));
   r = await s.call(2, "use", { id: "t_biguan" });
@@ -91,9 +91,7 @@ test("师徒：徒弟拜师、大境界突破师徒各得赏、门下五人封�
   r = await s.call(11, "mentor.apply", { name: "老祖" });
   assert.equal(r.ok, true, r.msg);
   r = await s.call(11, "mentor.apply", { name: "老祖" }); assert.equal(r.ok, false);
-  await s.call(10, "home"); // 师父先看到徒弟，记账起点
-  assert.equal(s.char(10).mentorPaid[11], 0);
-  const ls0m = s.char(10).ls;
+  const ls0m = s.char(10).ls; // 师父这次不上线，稍后才看到徒弟：也要按拜师时境界补赏
   // 徒弟跨大境界
   s.setChar(11, (c) => { c.r = 1; c.s = 0; c.mentor.paid = 0; });
   const { apprenticeBreak } = await import("../lib/game/social.js");

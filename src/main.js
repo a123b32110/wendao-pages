@@ -964,6 +964,13 @@ return{ok:true,msg:`卖出 ${itemOf(it.id).name}，得 ${v} 灵石`,ls:v};
 function useItem(c,id,now,st,opts={}){
 const def=itemOf(id);
 if(!def||countOf(c,id)<1)return{ok:false,msg:"没有这件物品"};
+if(def.fx?.reroot){
+
+removeItems(c,[[id,1]]);
+c.tox=Math.min(TOX_MAX,(c.tox??0)+(def.fx.tox??0));
+c.root=rollRoot(opts.rng??makeRng(`${c.uid}:${c.sk}:${now}:${c.ac = (c.ac ?? 0) + 1}`));
+return{ok:true,msg:`洗髓已毕，灵根重定：${c.root.e.join("")}`,reroot:true};
+}
 if(def.k==="pill"){
 const fx=def.fx;
 const pillMult=st?.pathMods?.pill??1;
@@ -1017,13 +1024,6 @@ if((c.array??0)>=def.fx.array)return{ok:false,msg:"洞府已有同等或更好�
 removeItems(c,[[id,1]]);
 c.array=def.fx.array;
 return{ok:true,msg:"聚灵阵已布下，洞府灵气渐浓。"};
-}
-if(def.fx?.reroot){
-
-removeItems(c,[[id,1]]);
-c.tox=Math.min(TOX_MAX,(c.tox??0)+(def.fx.tox??0));
-c.root=rollRoot(opts.rng??makeRng(`${c.uid}:${c.sk}:${now}:${c.ac = (c.ac ?? 0) + 1}`));
-return{ok:true,msg:`洗髓已毕，灵根重定：${c.root.e.join("")}`,reroot:true};
 }
 if(def.fx?.biguan){
 removeItems(c,[[id,1]]);
@@ -1212,7 +1212,7 @@ const kids=profiles(shared).filter((x)=>String(x.m??"")===String(c.uid));
 if(!kids.length)return;
 c.mentorPaid=c.mentorPaid??{};
 for(const k of kids){
-if(c.mentorPaid[k.uid]===undefined){c.mentorPaid[k.uid]=k.r??0;continue;} 
+if(c.mentorPaid[k.uid]===undefined)c.mentorPaid[k.uid]=Math.min(k.r??0,k.mr??k.r??0); 
 if((k.r??0)>c.mentorPaid[k.uid]){
 const ls=mentorReward(k.r),wu=1;
 c.ls+=ls;c.wu=(c.wu??0)+wu;c.mentorPaid[k.uid]=k.r;
@@ -3942,7 +3942,7 @@ uid:c.uid,n:c.name,r:c.r,s:c.s,pw:st.power,pa:c.path??null,sub:c.sub??null,sect:
 ar:c.season.ar??1000,ss:c.season.ss??0,sn:c.season.n??0,ls:Math.round(c.ls),lives:c.lives??1,
 title:c.title??null,asc:c.ascended?1:0,dead:c.dead?1:0,b:buildSnapshot(c,st),t:now,
 dgw:c.dgBest?[c.dgBest.wk,c.dgBest.d,c.dgBest.t]:undefined,
-m:c.mentor?c.mentor.uid:undefined,vp:c.vip?c.vip:undefined,
+m:c.mentor?c.mentor.uid:undefined,mr:c.mentor?c.mentor.r0:undefined,vp:c.vip?c.vip:undefined,
 };
 }
 
