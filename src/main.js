@@ -4382,6 +4382,73 @@ if(Number.isFinite(d)&&d<day)delShared(effects,e.key);
 for(const e of byPrefix(shared,"wxb:"))if(Number(e.key.slice(4))<day)delShared(effects,e.key);
 }
 
+// ---- lib/util/lz.js
+const SYM=768;
+const enc=(v)=>String.fromCharCode(v<512?0x100+v:0x400+(v-512));
+const isTok=(c)=>(c>=0x100&&c<0x300)||(c>=0x400&&c<0x500);
+const cu8=(c)=>(c<0x80?1:c<0x800?2:c<0x10000?3:4);
+
+const UNPACK_NAME="wdUnpack";
+const UNPACK_SRC="function wdUnpack(s){var a=[],i=0,n=s.length,c,l,d,p,k,j;var v=function(x){return x<768?x-256:x-512};var t=function(x){return (x>=256&&x<768)||(x>=1024&&x<1280)};while(i<n){c=s.charCodeAt(i);if(t(c)){l=v(c)+3;d=v(s.charCodeAt(i+1))*768+v(s.charCodeAt(i+2))+1;p=a.length-d;for(k=0;k<l;k++)a.push(a[p+k]);i+=3}else{j=i+1;while(j<n&&!t(s.charCodeAt(j)))j++;for(k=i;k<j;k++)a.push(s[k]);i=j}}return a.join(\"\")}";
+
+function unpack(s){
+const a=[];let i=0;const n=s.length;
+const v=(x)=>(x<768?x-256:x-512);
+const t=(x)=>(x>=256&&x<768)||(x>=1024&&x<1280);
+while(i<n){
+const c=s.charCodeAt(i);
+if(t(c)){
+const l=v(c)+3,d=v(s.charCodeAt(i+1))*768+v(s.charCodeAt(i+2))+1,p=a.length-d;
+for(let k=0;k<l;k++)a.push(a[p+k]);
+i+=3;
+}else{let j=i+1;while(j<n&&!t(s.charCodeAt(j)))j++;for(let k=i;k<j;k++)a.push(s[k]);i=j;}
+}
+return a.join("");
+}
+function pack(text){
+const t=text.replace(/\r\n?/g,"\n"); 
+const n=t.length;
+for(let i=0;i<n;i++)if(isTok(t.charCodeAt(i)))throw new Error(`pack: text uses a token char U+${t.charCodeAt(i).toString(16)} at ${i}`);
+if(t.includes("`")||t.includes("${"))throw new Error("pack: text contains ` or ${");
+const MAXLEN=SYM+2;
+const MAXOFF=SYM*SYM;
+const head=new Map();
+const bytesAt=new Uint8Array(n);
+for(let i=0;i<n;i++)bytesAt[i]=cu8(t.charCodeAt(i));
+const addPos=(p)=>{if(p+3<=n){const key=t.substr(p,3);let l=head.get(key);if(!l)head.set(key,(l=[]));l.push(p);}};
+const findMatch=(i)=>{
+if(i+3>n)return null;
+const list=head.get(t.substr(i,3));
+if(!list)return null;
+let best=null,bestGain=0;
+for(let k=list.length-1,tries=0;k>=0&&tries<512;k--,tries++){
+const p=list[k];
+const d=i-p;
+if(d>MAXOFF)break;
+let l=0,b=0;
+while(l<MAXLEN&&i+l<n&&t.charCodeAt(p+l)===t.charCodeAt(i+l)){b+=bytesAt[i+l];l++;}
+const gain=b-6;
+if(gain>bestGain){bestGain=gain;best={d,l,b};}
+}
+return best;
+};
+let out="",i=0;
+while(i<n){
+let m=findMatch(i);
+if(m){
+const m2=findMatch(i+1); 
+if(m2&&m2.b-6>m.b-6+bytesAt[i]){out+=t[i];addPos(i);i++;m=m2;}
+const v=m.d-1;
+out+=enc(m.l-3)+enc(Math.floor(v / SYM))+enc(v%SYM);
+for(let k=0;k<m.l;k++)addPos(i+k);
+i+=m.l;
+}else{out+=t[i];addPos(i);i++;}
+}
+if(out.endsWith("\\"))throw new Error("pack: payload ends with a backslash"); 
+if(unpack(out)!==t)throw new Error("pack: round trip mismatch");
+return out;
+}
+
 // ---- lib/ui/page.js
 function wdUnpack(s){var a=[],i=0,n=s.length,c,l,d,p,k,j;var v=function(x){return x<768?x-256:x-512};var t=function(x){return (x>=256&&x<768)||(x>=1024&&x<1280)};while(i<n){c=s.charCodeAt(i);if(t(c)){l=v(c)+3;d=v(s.charCodeAt(i+1))*768+v(s.charCodeAt(i+2))+1;p=a.length-d;for(k=0;k<l;k++)a.push(a[p+k]);i+=3}else{j=i+1;while(j<n&&!t(s.charCodeAt(j)))j++;for(k=i;k<j;k++)a.push(s[k]);i=j}}return a.join("")}
 const WD_PK0 = wdUnpack(String.raw`
@@ -4550,8 +4617,18 @@ return '<div id="wd" data-user="'+String(name).replace(/[^\w\-一-龥]/g,"")+'">
 function pageCss(){
 return WD_PK0;
 }
+
+
+const PACKED=new WeakMap();
+function packedAssets(assets){
+const key=assets??{};
+if(typeof key==="string")return key;
+let p=PACKED.get(key);
+if(!p){p=pack(JSON.stringify(key));PACKED.set(key,p);}
+return p;
+}
 function pageJs(assets){
-return "(function(){var A="+JSON.stringify(assets??{})+";var wxSim="+WX_SIM_SRC+";"+WD_PK1;
+return "(function(){"+UNPACK_SRC+";var A=JSON.parse(wdUnpack("+JSON.stringify(packedAssets(assets))+"));var wxSim="+WX_SIM_SRC+";"+WD_PK1;
 }
 
 // ---- lib/ui/artsvg.js
