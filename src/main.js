@@ -6557,11 +6557,13 @@ return{day,boss:w.boss,weather:w.weather,env:w.env,season,tick:shared.get("world
 
 
 
-const tickKey=(now)=>`tick:${Math.floor(now / 1000)}`;
+const tickKey=()=>"tick2";
 function ensureTick(shared,now,effects){
 const w=shared.get("world");
-if(!w||now-(w.tickAt??0)>2*TICK_SECONDS*1000){
-effects.push({type:"schedule.add",job_key:tickKey(now),in_seconds:20});
+
+
+if(!w||now-(w.tickAt??0)>TICK_SECONDS*1000+30_000){
+effects.push({type:"schedule.add",job_key:tickKey(),in_seconds:20});
 }
 }
 
@@ -7116,7 +7118,7 @@ botWork(shared,now,effects,14,now);
 }catch(e){
 setShared(effects,"world",{...worldFor(dayKey(now)),tickAt:now,err:String(e&&e.message?e.message:e).slice(0,200)});
 }
-effects.push({type:"schedule.add",job_key:tickKey(now),in_seconds:TICK_SECONDS});
+effects.push({type:"schedule.add",job_key:tickKey(),in_seconds:TICK_SECONDS});
 return{blocks:null,state:null,effects};
 }
 
