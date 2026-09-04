@@ -44,16 +44,16 @@ async function dev(method, params = {}) { const r = await call(method, params); 
 async function reload() { await attach(); }
 const btn = (t, scope = "#wd") => frame.locator(scope + " button", { hasText: t }).filter({ has: frame.locator(":scope:not([disabled])") });
 async function click(t, scope = "#wd", wait = 1200) { const b = frame.locator(scope + " button:not([disabled])", { hasText: t }).first(); await b.waitFor({ timeout: 8000 }); await b.click(); await sleep(wait); }
-async function tab(t) { await click(t, "#tabs", 1500); }
+async function tab(t) { const thx = frame.locator("#wd button:visible", { hasText: "谢过" }); if (await thx.count()) { await thx.first().click(); await sleep(600); } await click(t, "#tabs", 1500); }
 async function expect(re, what) { if (!(await has(re))) throw new Error(`${what}: expected /${re.source}/ — got: ${(await text()).slice(0, 240)}`); }
 async function overlayOpen() { return frame.evaluate(() => { const o = document.getElementById("overlay"); return !!o && !o.classList.contains("hidden"); }); }
 async function closeOverlay() { // skip replay / confirm result
   for (let i = 0; i < 12 && (await overlayOpen()); i++) {
-    const sk = frame.locator("#overlay button", { hasText: /跳过/ });
+    const sk = frame.locator("#overlay button:visible", { hasText: /跳过/ });
     if (await sk.count()) { await sk.first().click(); await sleep(400); continue; }
-    const pri = frame.locator("#overlay button.pri");
+    const pri = frame.locator("#overlay button.pri:visible");
     if (await pri.count()) { await pri.first().click(); await sleep(600); continue; }
-    const any = frame.locator("#overlay button:not([disabled])");
+    const any = frame.locator("#overlay button:not([disabled]):visible");
     if (await any.count()) { await any.first().click(); await sleep(600); } else break;
   }
 }
@@ -230,6 +230,7 @@ await step("道册: 悬赏 + 成就 + 称号", async () => {
   await tab("道册"); await expect(/悬赏/, "bounty page"); await shot("bounty");
   if (await btn("领取").count()) { await click("领取", "#app", 1500); await closeOverlay(); }
   await click("成就", "#app", 1000); await expect(/成就/, "ach page"); await shot("ach");
+  await click("图鉴", "#app", 1200); await expect(/件物品/, "codex page"); await click("妖兽", "#app", 800); await expect(/出没|掉落/, "codex monsters"); await shot("codex");
   await click("传记", "#app", 1000); await expect(/年谱|传/, "bio sub");
 });
 await step("榜单 all boards + 传记", async () => {

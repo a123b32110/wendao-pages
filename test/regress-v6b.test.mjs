@@ -185,7 +185,8 @@ test("拍卖行的响应大小不随全站在拍量增长——否则坊市与�
   assert.equal(a.open.length, 40, "只列最先落槌的 40 件");
   assert.equal(a.openTotal, 1800, "但总数如实报出");
   assert.equal(typeof a.open[0].item.rn, "number", "列表里的符纹只带个数");
-  assert.equal(a.open[0].item.af, undefined, "词缀不进列表");
+  assert.ok(Array.isArray(a.open[0].item.af) && a.open[0].item.af.length === 2, "词缀进列表（玩家要看得见属性），但只带 st/v/n");
+  assert.deepEqual(a.open[0].item.rns, ["atk", "def"], "符纹只带种类");
   // 落槌结算读的是共享记录本身，不是这个精简过的列表 —— 符纹必须还在
   assert.equal(s.shared.get("auction:100:1").item.rn.length, 2);
 });

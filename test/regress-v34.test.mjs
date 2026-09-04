@@ -31,7 +31,7 @@ test("坊市：种子管够（至少两格、总数上得去），并且能花�
   assert.match(no.msg, /已请商队补货/);
 });
 
-test("坊市：补货后仍买不到今天已经买光的东西（刷新不能刷出重复存货）", async () => {
+test("坊市：补货后是满的一批新货，上一批买光的东西不再显示「余 0」", async () => {
   const s = new Site();
   await s.call(2, "boot", {});
   await s.call(2, "create", { name: "囤货郎" });
@@ -40,9 +40,14 @@ test("坊市：补货后仍买不到今天已经买光的东西（刷新不能�
   const target = v.data.shop.find((x) => x.left > 0);
   for (let i = 0; i < target.n; i++) await s.call(2, "buy", { idx: target.idx });
   assert.equal((s.char(2).daily.shop ?? {})[target.id], target.n, "买光了");
+  assert.equal((await s.call(2, "shop")).data.shop.find((x) => x.id === target.id).left, 0, "刷新前这一件确实卖光");
   await s.call(2, "shop.refresh");
-  const after = (await s.call(2, "shop")).data.shop.find((x) => x.id === target.id);
-  if (after) assert.equal(after.left, 0, "刷新出来还是同一件的话，存货必须仍是 0");
+  const shop2 = (await s.call(2, "shop")).data.shop;
+  assert.ok(shop2.every((x) => x.left === x.n), "补货后的每一格都是满的（玩家原话：怎么能刷出剩 0 个的）");
+  const first = shop2[0];
+  const r = await s.call(2, "buy", { idx: first.idx });
+  assert.equal(r.ok, true, r.msg);
+  assert.equal((await s.call(2, "shop")).data.shop[0].left, first.n - 1, "新批次按批次单独记账");
 });
 
 test("能量供奉：用 points.spend 真扣能量，每日封顶，余额不够干净地拒", async () => {
@@ -83,8 +88,13 @@ test("补偿礼包：老玩家领一次，新号不发，转世后也不重发",
   const s = new Site();
   await s.call(4, "boot", {});
   await s.call(4, "create", { name: "苦主" });
-  // 新建的号（创建时间在补偿线之后）不发
+  // 礼包上线前的时间点什么都领不到（测试里的固定日期都在这之前）
   let v = await s.call(4, "home");
+  assert.equal(v.gift, undefined, "礼包还没上线");
+  s.advance(g.before - s.now + 60_000);
+  // 新建的号（创建时间在补偿线之后）不发
+  s.setChar(4, (c) => { c.created = g.before + 1; });
+  v = await s.call(4, "home");
   assert.equal(v.gift, undefined, "补偿线之后新建的号不该收到赔罪礼包");
   // 把创建时间挪到出事那会儿 —— 这才是受影响的老玩家
   s.setChar(4, (c) => { c.created = g.before - 1; c.tox = 60; c.hpP = 0.2; c.ls = 0; });

@@ -338,10 +338,42 @@ test("道册：悬赏子页领赏走 rpc，成就与传记子页可切换", asyn
   await p.tick(80);
   assert.match(p.text(), /初试锋芒|三世修者/);
   assert.match(p.text(), /不用称号/);
+  // 图鉴：物品按类、妖兽带出没与掉落
+  await p.click(p.btn("图鉴"));
+  await p.tick(120);
+  assert.match(p.text(), /件物品/);
+  assert.match(p.text(), /回血丹.*回复一半气血/, "丹药默认在列，说明与数字都在");
+  await p.click(p.btn("妖兽"));
+  await p.tick(120);
+  assert.match(p.text(), /野狼.*出没：青山村.*掉落：妖兽皮/);
   // 传记
   await p.click(p.btn("传记"));
   await p.tick(80);
   assert.match(p.text(), /年谱/);
+  assert.deepEqual(p.errors, []);
+});
+
+test("坊市：在拍列表看得见法宝词缀、符纹与物品说明；榜单前三带境界与流派", async () => {
+  const site = new Site();
+  // 另一位卖家挂一件带词缀的法宝
+  site.shared.set("auction:99:1", { aid: "99:1", uid: 99, n: "铸剑客", min: 100, end: site.now + 3600e3 * 20, t: site.now, item: { k: "art", id: "f_tiejian", name: "精铁剑", q: 3, t: 0, slot: "w", af: [{ st: "atk", v: 12, n: "锋锐" }], rn: [{ st: "def", v: 4, id: "r_shi" }] } });
+  site.shared.set("auction:99:2", { aid: "99:2", uid: 99, n: "铸剑客", min: 10, end: site.now + 3600e3 * 20, t: site.now, item: { k: "pill", id: "p_huixue", name: "回血丹", n: 3, t: 0 } });
+  const p = await mount(site, 13);
+  await p.tick(60);
+  p.$("#app input").value = "看货人";
+  await p.click(p.btn("定下道号"));
+  await p.click(p.btn("就这样"));
+  await p.tick(80);
+  await p.tab("坊市");
+  await p.tick(120);
+  assert.match(p.text(), /精铁剑（3星）（1纹）.*攻击 6 · 锋锐 \+12 · 符纹：防御/, "法宝的底数、词缀、符纹都列出来");
+  assert.match(p.text(), /回血丹×3.*回复一半气血/, "非法宝给说明文字");
+  // 榜单前三
+  for (let u = 1; u <= 3; u++) site.shared.set(`p:${u}`, { uid: u, n: "榜上人" + u, r: 4, s: 2, pw: 1000 * u, pa: "jian", title: u === 1 ? "斩妖人" : null, t: site.now });
+  await p.tab("榜单");
+  await p.tick(120);
+  assert.match(p.text(), /榜上人3剑修化神后期/, "领奖台带境界与流派");
+  assert.match(p.text(), /斩妖人/, "称号也在");
   assert.deepEqual(p.errors, []);
 });
 

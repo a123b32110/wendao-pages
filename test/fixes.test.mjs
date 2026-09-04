@@ -3,6 +3,7 @@
 // arena defence retention, shop counters, stable arena opponents, event gates, key table,
 // dead daily rollover, sect boss guard).
 import { test } from "node:test";
+import { auctionOf } from "../lib/game/shared.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { Site } from "./harness.mjs";
@@ -61,7 +62,7 @@ test("auction: seller never deletes the key; full-bag winner keeps escrow until 
   await site.call(1, "home");
   assert.equal(site.char(1).ls >= 500, true);
   site.advance(4 * DAY); await site.call(1, "home");
-  assert.ok(site.shared.has("auction:1:1"), "seller did not delete the auction key");
+  assert.ok(auctionOf(site.shared, "1:1"), "seller did not delete the auction record (the bot may have folded it into aux:)");
   // winner with a full 法宝匣: not marked done, escrow intact, no item yet
   await site.call(2, "home");
   let b = site.char(2);
