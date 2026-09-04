@@ -4,7 +4,7 @@ const app = await import(process.env.WD_BUNDLE ? "../src/main.js" : "../lib/main
 export { app };
 
 export class Site {
-  constructor(start = Date.UTC(2026, 8, 5, 8)) {
+  constructor(start = Date.UTC(2026, 8, 8, 8)) {
     this.now = start;
     this.shared = new Map();
     this.kv = new Map(); // uid -> Map

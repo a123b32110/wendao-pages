@@ -267,7 +267,7 @@ test("auction: escrow, bot settlement, winner and loser claims, no double claim"
 });
 
 test("world boss: damage keys, ranking reward next day, pruning", async () => {
-  const site = new Site();
+  const site = new Site(Date.UTC(2026, 8, 3, 8)); // 钉住日期：当天的 BOSS 决定境界折算后谁排第一
   await createPlayer(site, 40, "猎手");
   await createPlayer(site, 41, "猎手二");
   site.setChar(40, (c) => { c.r = 2; });
