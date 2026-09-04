@@ -16,6 +16,8 @@ test("build: bundle imports, templates untouched, size under cap", async () => {
   assert.equal(typeof m.webview, "function");
   const ctx = { user: { id: 1, username: "u1" } };
   const a = await m.webview(ctx), b = await lib.webview(ctx);
+  // 平台对 webview 输出也有 512 KB 上限，超了整张卡片 404（2026-09-04 v48 全服进不去）。留足余量。
+  assert.ok(Buffer.byteLength(a.html + a.css + a.js, "utf8") < 400 * 1024, `webview 输出 ${Buffer.byteLength(a.html + a.css + a.js, "utf8")} 字节，必须远低于平台 512 KB 上限`);
   assert.equal(a.html, b.html);
   assert.equal(a.css, b.css, "pageCss verbatim");
   // the client embeds wxSim via Function#toString, whose whitespace the stripper legitimately changes
