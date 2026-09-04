@@ -41,7 +41,7 @@ test("planting spends the seed, harvest yields 2-4 and empties the plot", async 
   const site = new Site();
   await site.call(6, "boot");
   await site.call(6, "create", { name: "种田客" });
-  site.setChar(6, (c) => { c.inv.stack.s_lingcao = 2; });
+  site.setChar(6, (c) => { c.inv.stack.s_lingcao = 2; c.sk = "farm-fixed-seed"; }); // 钉住种子：生长事件与收成都由 sk 派生，随机 sk 会偶发受损收 1 株
   const bad = await site.call(6, "farm.plant", { i: 0, seed: "m_lingcao" });
   assert.equal(bad.ok, false);
   const v = await site.call(6, "farm.plant", { i: 0, seed: "s_lingcao" });

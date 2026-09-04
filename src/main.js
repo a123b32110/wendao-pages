@@ -554,7 +554,7 @@ arts:(b.ar??["a_slash"]).map(artOf),pet,path:b.pa??null,interrupt:0,array:0,tali
 };
 }
 function offlineCapMs(c){
-return OFFLINE_CAP_HOURS[Math.min(2,c.array??0)]*HOUR;
+return(OFFLINE_CAP_HOURS[Math.min(2,c.array??0)]+((c.vip|0)>=2?4:0))*HOUR;
 }
 
 // ---- lib/game/char.js
@@ -684,7 +684,7 @@ tox:Math.round(c.tox),age:ageOf(c,now),life:lifespanOf(c,st),lives:c.lives,legac
 gf:c.gf,eqArts:c.eqArts,eq:c.eq,pet:c.pet,array:c.array,sect:c.sect,sectLv:c.sectLv,
 daily:c.daily,dbf:c.dbf,buffs:c.buffs,dead:c.dead,ascended:c.ascended,title:c.title,
 season:c.season,trib:c.trib?{n:c.trib.n,i:c.trib.i,hp:c.trib.hp,mp:c.trib.mp,target:c.trib.target}:null,
-ev:c.ev?c.ev.id:null,rerolls:c.rerolls,breathAt:c.breathAt,now,
+ev:c.ev?c.ev.id:null,rerolls:c.rerolls,breathAt:c.breathAt,now,vip:c.vip|0,
 farm:farmBadge(c,now),
 dg:c.dg?c.dg.f:0,wx:c.wx&&c.wx.d===dayKey(now)?c.wx.sc:0,
 };
@@ -816,94 +816,6 @@ drops:(m.drops??[]).map(([id,p,n])=>({name:nameOf(id),p:Math.round(p*100),n})),
 }));
 cache={kinds:CODEX_KINDS,items,mons};
 return cache;
-}
-
-// ---- lib/game/cultivate.js
-const BREATH_CD=10*60*1000;
-const BREATH_DAILY=30;
-
-function breathe(c,now){
-if(now-(c.breathAt??0)<BREATH_CD){
-const left=Math.ceil((BREATH_CD-(now-c.breathAt)) / 1000);
-return{ok:false,msg:`气息未平，${left} 秒后再吐纳`};
-}
-if(c.daily.breath>=BREATH_DAILY)return{ok:false,msg:"今日吐纳已足，过犹不及"};
-if(c.r>=ASCEND_REALM)return{ok:false,msg:"已登仙籍"};
-const st=deriveStats(c);
-const gain=Math.round(REALMS[c.r].rate*st.rate*0.1);
-const need=xpNeed(c);
-c.xp=Math.min(need*1.5,c.xp+gain);
-c.breathAt=now;
-c.daily.breath++;
-const ls=1+Math.floor(c.r*1.5);
-c.ls+=ls;
-c.mpP=Math.min(1,c.mpP+0.1);
-return{ok:true,msg:`一呼一吸间，修为 +${gain}，拾得灵石 +${ls}`,gain,ls};
-}
-function breakthroughChance(c,st){
-const base=c.r===0?0.9:Math.max(0.55,0.82-c.r*0.03);
-let p=base+st.bt+(c.pillBt??0);
-if(c.tox>40)p-=0.1;
-if(c.tox>70)p-=0.15;
-if(st.injured)p-=0.15;
-if(st.heart)p-=0.1;
-if(st.qi)p-=0.2;
-p+=0.15*(c.btStreak??0); 
-return Math.max(0.05,Math.min(0.98,p));
-}
-
-function breakthrough(c,now,rng){
-if(c.r>=ASCEND_REALM)return{ok:false,msg:"已登仙籍"};
-const need=xpNeed(c);
-if(c.xp<need)return{ok:false,msg:"修为未满，不可强求"};
-if(c.trib)return{ok:false,msg:"天劫当前，先渡劫"};
-if(isMajorStep(c.r,c.s))return{ok:false,msg:"需渡劫方可晋升大境界",major:true};
-const st=deriveStats(c);
-const p=breakthroughChance(c,st);
-c.stats.bt++;
-c.pillBt=0;
-if(rng.chance(p)){
-c.xp-=need;
-c.s++;
-c.hpP=1;c.mpP=1;
-c.btStreak=0;
-return{ok:true,success:true,msg:`丹田一震，你踏入了${realmName(c.r, c.s)}。`,p};
-}
-c.stats.btFail++;
-c.btStreak=(c.btStreak??0)+1;
-
-
-c.xp=Math.max(0,c.xp-need*0.1);
-c.dbf.qi=now+4*HOUR;
-c.hpP=Math.max(0.15,c.hpP-0.25);
-const next=Math.round(Math.min(0.98,p+0.15)*100);
-return{ok:true,success:false,msg:`灵气逆冲，你走火入魔，修为损失一成，四小时内修炼迟滞。心境却也磨利了一分——下次成功率 ${next}%。`,p};
-}
-function choosePath(c,id){
-const p=pathOf(id);
-if(!p)return{ok:false,msg:"无此道途"};
-if(c.r<PATH_CHOOSE_REALM)return{ok:false,msg:"筑基之后方可择道"};
-if(c.path&&c.path===id)return{ok:false,msg:"已在此道"};
-if(c.path){
-if(c.r<SUB_CHOOSE_REALM)return{ok:false,msg:"金丹之后方可转修"};
-if(c.ls<RESPEC_COST)return{ok:false,msg:`转修需 ${RESPEC_COST} 灵石`};
-c.ls-=RESPEC_COST;
-c.respec=(c.respec??0)+1;
-c.xp=Math.max(0,c.xp*0.5);
-}
-c.path=id;
-
-c.eqArts=c.eqArts.filter((a)=>{const art=c.arts.includes(a);return art;});
-if(c.path==="xie")c.wu=Math.max(0,c.wu-2);
-return{ok:true,msg:`自今日起，你是一名${p.name}。`};
-}
-function chooseSub(c,id){
-const s=subOf(id);
-if(!s)return{ok:false,msg:"无此副业"};
-if(c.r<SUB_CHOOSE_REALM)return{ok:false,msg:"金丹之后方可兼修副业"};
-if(c.sub)return{ok:false,msg:"副业已定，不可更改"};
-c.sub=id;
-return{ok:true,msg:`你兼修${s.name}之道。`};
 }
 
 // ---- lib/game/inventory.js
@@ -1112,6 +1024,176 @@ const st=d?.st?Object.fromEntries(Object.entries(d.st).map(([k,v])=>[k,v<1?+(v*q
 return{iid:a.iid,id:a.id,name:d?.name,slot:d?.slot,t:d?.t,v:d?.v??0,q:a.q,qm:+qm.toFixed(2),af:a.af,rn:a.rn??[],st,elem:d?.elem??null,desc:d?.desc,equipped:Object.values(c.eq).includes(a.iid)};
 });
 return{stack,arts,eq:c.eq,cap:{stack:STACK_CAP,arts:ART_CAP}};
+}
+
+// ---- lib/game/vip.js
+const VIP=[[0,"凡人"],[5,"白银"],[20,"黄金"],[50,"钻石"],[100,"王者"]];
+const VIP_PERKS=[
+[],
+["坊市补货 +1 次/日","每日多一张悬赏"],
+["离线修炼上限 +4 小时","拍卖手续费减半","可佩戴会员称号"],
+["秘境每日 +1 次","灵田 +1 块","坊市九五折"],
+["能量兑换率 ×1.2","榜单与顶栏金色徽记"],
+];
+function vipLevel(en){
+let lv=0;
+for(let i=0;i<VIP.length;i++)if((en|0)>=VIP[i][0])lv=i;
+return lv;
+}
+
+const vipOf=(c)=>Math.max(0,Math.min(VIP.length-1,c?.vip|0));
+function vipView(c,legacy){
+const en=legacy?.en|0,lv=vipLevel(en);
+const next=lv+1<VIP.length?VIP[lv+1]:null;
+return{lv,name:VIP[lv][1],en,next:next?next[1]:null,need:next?next[0]:null,perks:VIP_PERKS.slice(1,lv+1).flat(),all:VIP.map((v,i)=>({lv:i,name:v[1],en:v[0],perks:VIP_PERKS[i]}))};
+}
+const vipTitle=(lv)=>(lv>=2?`${VIP[lv][1]}道友`:null);
+
+const VS_SLOTS=4;
+const VS_POOL=[
+[], 
+[["seed+1",3],["p_qingdu",2],["rune",1]],
+[["p_xiqi",3],["t_dun",2],["egg+1",1]],
+[["m_jinghe",2],["r_ji",1],["r_tu",1]],
+[["art",1]],
+];
+const tierOf=(c)=>TIER_OF_REALM[Math.max(0,Math.min(8,c.r|0))]??0;
+function resolve(spec,c,rng){
+const t=tierOf(c);
+if(spec==="seed+1"){const p=ITEMS.filter((i)=>i.fx?.seed&&i.t===Math.min(5,t+1));return p.length?rng.pick(p).id:null;}
+if(spec==="rune"){const p=ITEMS.filter((i)=>i.fx?.rune&&i.t<=Math.max(1,t));return p.length?rng.pick(p).id:null;}
+if(spec==="egg+1"){const p=ITEMS.filter((i)=>i.k==="egg"&&i.t<=Math.min(4,t+1));return p.length?rng.pick(p).id:null;}
+if(spec==="art"){const p=ITEMS.filter((i)=>i.k==="art"&&i.t===Math.min(5,t));return p.length?rng.pick(p).id:null;}
+return spec;
+}
+function vshopStock(c,day){
+const lv=vipOf(c);
+const rng=makeRng(`vshop:${day}:${c.uid}:${c.r | 0}`);
+const pool=VS_POOL.slice(1,lv+1).flat();
+const picks=[];
+const seen=new Set();
+let guard=0;
+while(picks.length<VS_SLOTS&&pool.length&&guard++<40){
+const[spec,n]=rng.pick(pool);
+const id=resolve(spec,c,rng);
+if(!id||seen.has(id))continue;
+seen.add(id);
+const d=itemOf(id);
+picks.push({idx:picks.length,id,n,price:Math.round(d.v*1.6)});
+}
+return picks;
+}
+function vshopView(c,day){
+const lv=vipOf(c);
+const bought=c.daily.vshop??{};
+return{
+lv,name:VIP[lv][1],unlockAt:VIP[1][0],
+stock:vshopStock(c,day).map((s)=>{const d=itemOf(s.id);return{...s,left:Math.max(0,s.n-(bought[s.id]??0)),name:d.name,k:d.k,t:d.t,desc:d.desc};}),
+};
+}
+function vshopBuy(c,idx,day,rng){
+const s=vshopStock(c,day)[Number(idx)];
+if(!s)return{ok:false,msg:"没有这件珍宝"};
+c.daily.vshop=c.daily.vshop??{};
+if((c.daily.vshop[s.id]??0)>=s.n)return{ok:false,msg:"已售罄"};
+if(c.ls<s.price)return{ok:false,msg:"灵石不足"};
+const d=itemOf(s.id);
+if(d.k==="art"){
+const it=rollArtifact(c,s.id,rng);
+if(!it)return{ok:false,msg:"法宝匣已满"};
+if((it.q??1)<2)it.q=2; 
+}else if(!addStack(c,s.id,1))return{ok:false,msg:"行囊已满"};
+c.ls-=s.price;
+c.daily.vshop[s.id]=(c.daily.vshop[s.id]??0)+1;
+return{ok:true,msg:`珍宝阁购得 ${d.name}，花费 ${s.price} 灵石`};
+}
+
+// ---- lib/game/cultivate.js
+const BREATH_CD=10*60*1000;
+const BREATH_DAILY=30;
+
+function breathe(c,now){
+if(now-(c.breathAt??0)<BREATH_CD){
+const left=Math.ceil((BREATH_CD-(now-c.breathAt)) / 1000);
+return{ok:false,msg:`气息未平，${left} 秒后再吐纳`};
+}
+if(c.daily.breath>=BREATH_DAILY)return{ok:false,msg:"今日吐纳已足，过犹不及"};
+if(c.r>=ASCEND_REALM)return{ok:false,msg:"已登仙籍"};
+const st=deriveStats(c);
+const gain=Math.round(REALMS[c.r].rate*st.rate*0.1);
+const need=xpNeed(c);
+c.xp=Math.min(need*1.5,c.xp+gain);
+c.breathAt=now;
+c.daily.breath++;
+const ls=1+Math.floor(c.r*1.5);
+c.ls+=ls;
+c.mpP=Math.min(1,c.mpP+0.1);
+return{ok:true,msg:`一呼一吸间，修为 +${gain}，拾得灵石 +${ls}`,gain,ls};
+}
+function breakthroughChance(c,st){
+const base=c.r===0?0.9:Math.max(0.55,0.82-c.r*0.03);
+let p=base+st.bt+(c.pillBt??0);
+if(c.tox>40)p-=0.1;
+if(c.tox>70)p-=0.15;
+if(st.injured)p-=0.15;
+if(st.heart)p-=0.1;
+if(st.qi)p-=0.2;
+p+=0.15*(c.btStreak??0); 
+return Math.max(0.05,Math.min(0.98,p));
+}
+
+function breakthrough(c,now,rng){
+if(c.r>=ASCEND_REALM)return{ok:false,msg:"已登仙籍"};
+const need=xpNeed(c);
+if(c.xp<need)return{ok:false,msg:"修为未满，不可强求"};
+if(c.trib)return{ok:false,msg:"天劫当前，先渡劫"};
+if(isMajorStep(c.r,c.s))return{ok:false,msg:"需渡劫方可晋升大境界",major:true};
+const st=deriveStats(c);
+const p=breakthroughChance(c,st);
+c.stats.bt++;
+c.pillBt=0;
+if(rng.chance(p)){
+c.xp-=need;
+c.s++;
+c.hpP=1;c.mpP=1;
+c.btStreak=0;
+return{ok:true,success:true,msg:`丹田一震，你踏入了${realmName(c.r, c.s)}。`,p};
+}
+c.stats.btFail++;
+c.btStreak=(c.btStreak??0)+1;
+
+
+c.xp=Math.max(0,c.xp-need*0.1);
+c.dbf.qi=now+4*HOUR;
+c.hpP=Math.max(0.15,c.hpP-0.25);
+const next=Math.round(Math.min(0.98,p+0.15)*100);
+return{ok:true,success:false,msg:`灵气逆冲，你走火入魔，修为损失一成，四小时内修炼迟滞。心境却也磨利了一分——下次成功率 ${next}%。`,p};
+}
+function choosePath(c,id){
+const p=pathOf(id);
+if(!p)return{ok:false,msg:"无此道途"};
+if(c.r<PATH_CHOOSE_REALM)return{ok:false,msg:"筑基之后方可择道"};
+if(c.path&&c.path===id)return{ok:false,msg:"已在此道"};
+if(c.path){
+if(c.r<SUB_CHOOSE_REALM)return{ok:false,msg:"金丹之后方可转修"};
+if(c.ls<RESPEC_COST)return{ok:false,msg:`转修需 ${RESPEC_COST} 灵石`};
+c.ls-=RESPEC_COST;
+c.respec=(c.respec??0)+1;
+c.xp=Math.max(0,c.xp*0.5);
+}
+c.path=id;
+
+c.eqArts=c.eqArts.filter((a)=>{const art=c.arts.includes(a);return art;});
+if(c.path==="xie")c.wu=Math.max(0,c.wu-2);
+return{ok:true,msg:`自今日起，你是一名${p.name}。`};
+}
+function chooseSub(c,id){
+const s=subOf(id);
+if(!s)return{ok:false,msg:"无此副业"};
+if(c.r<SUB_CHOOSE_REALM)return{ok:false,msg:"金丹之后方可兼修副业"};
+if(c.sub)return{ok:false,msg:"副业已定，不可更改"};
+c.sub=id;
+return{ok:true,msg:`你兼修${s.name}之道。`};
 }
 
 // ---- lib/game/tribulation.js
@@ -2385,7 +2467,7 @@ return "免费";
 function fmEnsure(c){
 const f=(c.farm=c.farm??{n:0,plots:[]});
 if(!Array.isArray(f.plots))f.plots=[];
-const want=Math.min(FM_MAX,2+(c.r>=1?1:0)+(c.r>=2?1:0)+((c.array??0)>=2?1:0));
+const want=Math.min(FM_MAX,2+(c.r>=1?1:0)+(c.r>=2?1:0)+((c.array??0)>=2?1:0)+((c.vip|0)>=3?1:0));
 while(f.plots.length<want)f.plots.push(null);
 while(f.plots.length>want&&f.plots[f.plots.length-1]==null)f.plots.pop();
 f.n=f.plots.length;
@@ -2869,6 +2951,9 @@ return{ok:true,success:true,msg:okAdd?`${isPill ? "丹成" : "炼成"}：${out.n
 const SHOP_SLOTS=10;
 const SHOP_REFRESH_DAILY=3;
 
+const shopReLimit=(c)=>SHOP_REFRESH_DAILY+((c.vip|0)>=1?1:0);
+const vipDisc=(c)=>((c.vip|0)>=3?0.95:1);
+
 const refreshCost=(c)=>Math.round((80+60*c.r)*((c.daily.shopRe??0)+1));
 
 
@@ -2903,7 +2988,7 @@ const shopKey=(c,id)=>((c.daily.shopRe??0)?`${c.daily.shopRe}:${id}`:id);
 function shopView(c,day){
 const stock=shopStock(c,day);
 const bought=c.daily.shop??{}; 
-const disc=subOf(c.sub)?.mods?.discount??1;
+const disc=(subOf(c.sub)?.mods?.discount??1)*vipDisc(c);
 return stock.map((s)=>{
 const d=itemOf(s.id);
 return{...s,left:Math.max(0,s.n-(bought[shopKey(c,s.id)]??0)),price:Math.round(s.price*disc),name:d.name,k:d.k,t:d.t,desc:d.desc,fx:d.fx??null,st:d.st??null,slot:d.slot??null};
@@ -2912,12 +2997,13 @@ return{...s,left:Math.max(0,s.n-(bought[shopKey(c,s.id)]??0)),price:Math.round(s
 
 function shopRefresh(c){
 const used=c.daily.shopRe??0;
-if(used>=SHOP_REFRESH_DAILY)return{ok:false,msg:`今日已请商队补货 ${SHOP_REFRESH_DAILY} 次`};
+const lim=shopReLimit(c);
+if(used>=lim)return{ok:false,msg:`今日已请商队补货 ${lim} 次`};
 const cost=refreshCost(c);
 if(c.ls<cost)return{ok:false,msg:`请商队跑一趟需 ${cost} 灵石`};
 c.ls-=cost;
 c.daily.shopRe=used+1;
-return{ok:true,msg:`商队又卸下一批货（花费 ${cost} 灵石，今日还可补货 ${SHOP_REFRESH_DAILY - used - 1} 次）`};
+return{ok:true,msg:`商队又卸下一批货（花费 ${cost} 灵石，今日还可补货 ${lim - used - 1} 次）`};
 }
 function buy(c,idx,day,rng){
 idx=Number(idx);
@@ -2928,7 +3014,7 @@ if(!s)return{ok:false,msg:"没有这件货"};
 c.daily.shop=c.daily.shop??{};
 const key=shopKey(c,s.id);
 if((c.daily.shop[key]??0)>=s.n)return{ok:false,msg:"已售罄"};
-const disc=subOf(c.sub)?.mods?.discount??1;
+const disc=(subOf(c.sub)?.mods?.discount??1)*vipDisc(c);
 const price=Math.round(s.price*disc);
 if(c.ls<price)return{ok:false,msg:"灵石不足"};
 const d=itemOf(s.id);
@@ -3022,7 +3108,7 @@ const mine=auctionsAll(shared).filter((a)=>a.uid===c.uid&&!c.aucDone?.[a.aid]);
 if(mine.length>=MAX_ACTIVE)return{ok:false,msg:`最多同时 ${MAX_ACTIVE} 件在拍。先去坊市把已落槌的收了，位子就空出来`};
 const{payload,take,err}=itemPayload(c,item??{});
 if(err)return{ok:false,msg:err};
-const fee=subOf(c.sub)?.mods?.fee??FEE;
+const fee=(subOf(c.sub)?.mods?.fee??FEE)*((c.vip|0)>=2?0.5:1);
 const feeLs=Math.ceil(min*fee);
 if(c.ls<feeLs)return{ok:false,msg:`手续费 ${feeLs} 灵石不足`};
 c.ls-=feeLs;
@@ -3039,7 +3125,7 @@ amt=Math.floor(Number(amt)||0);
 const a=auctionOf(shared,aid);
 if(!a)return{ok:false,msg:"拍品不存在"};
 if(a.uid===c.uid)return{ok:false,msg:"不能拍自己的东西"};
-if(now>=a.end)return{ok:false,msg:"已落槌"};
+if(a.settled||now>=a.end)return{ok:false,msg:"已落槌"};
 const bids=bidsFor(shared,aid).sort((x,y)=>y.amt-x.amt||x.t-y.t);
 const top=bids[0];
 const floor=Math.max(a.min,top?Math.ceil(top.amt*1.05):0);
@@ -3785,7 +3871,10 @@ const bestNow=c.r>best.r||(c.r===best.r&&c.s>best.s)?{r:c.r,s:c.s}:best;
 
 const keepGf=c.gfs.map((id)=>GONGFA.find((g)=>g.id===id)).filter((g)=>g&&!g.path&&!g.demon).sort((a,b)=>b.grade-a.grade).slice(0,2).map((g)=>g.id);
 const keep={gf:[...new Set([...(legacy?.keep?.gf??[]),...keepGf])].slice(0,4),arts:[...new Set([...(legacy?.keep?.arts??[]),...c.arts])].slice(0,12)};
+
+
 const nextLegacy={
+...(legacy??{}),
 pts:(legacy?.pts??0)+gain,lives:(legacy?.lives??0)+1,best:bestNow,keep,
 awards:legacy?.awards??{},history:[...(legacy?.history??[]),{name:c.name,r:c.r,s:c.s,age:ageOf(c,now),t:now,asc:!!c.ascended,cause:c.dead?.cause??(c.ascended?"飞升":"转世")}].slice(-20),
 ach:legacy?.ach??{},uid:c.uid,t:now,
@@ -3794,7 +3883,7 @@ const nc=newCharacter({uid:c.uid,name,now,seed,legacy:nextLegacy});
 nc.legacy=nextLegacy.pts;
 
 nc.aucDone=c.aucDone??{};nc.escrow=c.escrow??{};nc.escrowEnd=c.escrowEnd??{};nc.aucN=c.aucN??0;
-nc.bossClaim=c.bossClaim??0;nc.season.n=c.season?.n??0;nc.sk=c.sk;
+nc.bossClaim=c.bossClaim??0;nc.season.n=c.season?.n??0;nc.sk=c.sk;nc.enN=c.enN??0;nc.vip=c.vip??0;
 
 nc.bountyStreak=c.bountyStreak??0;nc.bountyLast=c.bountyLast??0;nc.sectWeek=c.sectWeek??-1;
 return{c:nc,legacy:nextLegacy,summary:{gain,total:nextLegacy.pts,lives:nextLegacy.lives,best:realmName(bestNow.r,bestNow.s)}};
@@ -3872,11 +3961,23 @@ title:"天机阁赔罪",
 
 before:Date.UTC(2026,8,3,19,40),
 
+note:"这一版修好了拍卖行点了没反应、渡劫堆气血白堆、突破罚得过重、坊市种子不够几处毛病。给道友赔个不是——",
 ls:(r)=>50000+15000*r,
 wu:5,
 items:[["t_bilei",5],["p_dingxin",5],["p_huixue",10],["p_huiling",10],["p_bigu",5]],
 mats:3, 
 matN:5,
+heal:true,
+},
+{
+key:"v46",
+title:"天机阁停摆致歉",
+
+before:Date.UTC(2026,8,4,11,25),
+note:"九月四日傍晚天机阁调度出了岔子，近三小时诸位道友进不了洞府、存不了功。天机阁自省，奉上薄礼——",
+ls:(r)=>20000+5000*r,
+wu:2,
+items:[["p_huixue",5],["p_huiling",5]],
 heal:true,
 },
 ];
@@ -3911,7 +4012,7 @@ c.hpP=1;c.mpP=1;c.tox=0;c.dbf={};
 c.st=Math.max(c.st??0,10);
 lines.push("气血灵力尽复，丹毒清空，伤势与走火入魔一并抹去");
 }
-return{key:g.key,title:g.title,lines,ls,wu:g.wu??0};
+return{key:g.key,title:g.title,note:g.note??"",lines,ls,wu:g.wu??0};
 }
 
 // ---- lib/game/energy.js
@@ -3919,35 +4020,36 @@ const ENERGY_DAILY=5;
 const ENERGY_MAX_PER_CALL=100; 
 
 
-const lsPerEnergy=(r)=>5000+5000*Math.max(0,r|0);
+const lsPerEnergy=(r,vip=0)=>Math.round((5000+5000*Math.max(0,r|0))*(vip>=4?1.2:1));
 function energyView(c,balance){
 const used=c.daily.energy??0;
 return{
 balance:Math.max(0,balance|0),
 left:Math.max(0,ENERGY_DAILY-used),
-rate:lsPerEnergy(c.r),
+rate:lsPerEnergy(c.r,c.vip|0),
 daily:ENERGY_DAILY,
 };
 }
 
-function offerEnergy(c,balance,n){
+function offerEnergy(c,balance,n,legacy=null){
 n=Math.max(1,Math.floor(Number(n)||0));
 const used=c.daily.energy??0;
 if(used>=ENERGY_DAILY)return{ok:false,msg:`今日供奉已满 ${ENERGY_DAILY} 点能量，明日再来`};
 if(n>ENERGY_DAILY-used)return{ok:false,msg:`今日最多还能供奉 ${ENERGY_DAILY - used} 点能量`};
 if(n>ENERGY_MAX_PER_CALL)return{ok:false,msg:`一次最多供奉 ${ENERGY_MAX_PER_CALL} 点能量`};
 if((balance|0)<n)return{ok:false,msg:`你只有 ${Math.max(0, balance | 0)} 点能量`};
-const rate=lsPerEnergy(c.r);
+const rate=lsPerEnergy(c.r,c.vip|0);
 const ls=rate*n;
 c.ls+=ls;
 c.daily.energy=used+n;
+if(legacy)legacy.en=(legacy.en|0)+n; 
 
 
 c.enN=(c.enN??0)+1;
 return{
 ok:true,
 msg:`供奉 ${n} 点能量，天机阁回赠灵石 +${ls}`,
-effect:{type:"points.spend",amount:n,label:`问道：供奉 ${n} 点能量换 ${ls} 灵石`.slice(0,100),request_id:`wd-${c.uid}-${c.enN}`},
+effect:{type:"points.spend",amount:n,label:`问道：供奉 ${n} 点能量换 ${ls} 灵石`.slice(0,100),request_id:`wd-${c.uid}-${(legacy?.lives ?? c.lives ?? 0) | 0}-${c.enN}`},
 };
 }
 
@@ -4180,7 +4282,7 @@ url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='760'
 #tabsĆćŸlex:1ĢćŌĉąɊąĂƓ7px 0 6ąā҇size:11ĒćʙĊĀȈflex-direction:columnđĊđgap:ĖąȵĈĀǰĔĂǙĆċɊ;ĖČӆċąДććƅĄċʣĈĀȬĕĄŬĉĀĢĎĆѲĈĀȵċĀĪ .ic{ğĂƽ4čČӮąĈұ4ĈĈȪ2ĈĂʋĲĊɛĒĈɋ72Ċćˊ2sĚĀɠďćʿıć҈8Đć҇8)đćȸ50%ąąҘ2Ąā˄ 80%,5ĄĄƞ,0 80%,0 20%)ďĀɺŜć˷6212cćāǅŊĀƾ.on{ĒĉЉċĀģ .icĈĈʒĕĆДĖćƩ700ĒĀœĠāĆ.onħĉȊ50%;top:23ĆĉȆ5ĈĀӜ54ćāѓ-2ĄĉҐ -27ĝąɞččҨēĉǾĎĀĕ0) 66%ćāїĒĎěąĀǮ.indĕĊű0;top:7ĆĀǔvar(--w,12.5%)ŁāƻěĎƴćĂЋtranslateX(ĈĊˇi,0)*100%)ĊąˆĆĀĶ .34Ďąˊ4,1.5,.42,1)ĉĀȄ bČąѩĔāʥįĉƬĆĈśb8934aņāŋ.ind.stamp bĊăȯstamp .3čĀǻ2,1.6,.4,1čĄѵstampđăƤ1.4Ĉāя35}6đăǉ93ćĀĤ1ĔăǇ)ĊĄҶastĄĂҧoastĕĂҩ84pxĈāŢđĀЎ-50ĈĀӪ60ġĂʥgap:6pxĒĀѽwidth:min(92vw,520ąĄҒasts .ĊĈƛčąď6)ěćȾĘĉҊ9px ĈćɿĉćąČĊĶĊĆƴade 3.6s forwardsċăŃ6px 20ĒăłąĀǏ.bađčӓ158,63,63,.7ĆĈ˺f2b0a4}
 .ferćĈČ2b0a4čĀƥĉďЗ8ćā˿4px 0čą˲adċĊʋđĀ˩Y(6px)}8ĘĊʣ85ĉăӴĊĄēĉąгink wipe ĄčБ screenĆĊː.inkčĀҏąďѤąĀѧ24ĒĀмĉĀʚink .4ĉĊ҆ćĀʢėāӢĄČɢĄď҅40Ąď҄7,11,22,0) 0ċĀđ.55) 34ČĀħ.96) 62ĎĀĕ9) 10ĆĈ˛.inkĢĂǥąĀǾĆāȈ55ŎĆѳąčģ8Ĉďӿ180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.045' numOctaves='4'/></filterĄčȥĕĀŽ filter='url(%23n)ĉďȰ70b16ĉďȰąďȢ80px 180pxČĀӫink{ĔċɧĆāЧ5ĈĀӇ.5ČĀӈďĀİ.5ĉāњoverlay */
 #ĄĀċĕĀӌĉĈǈ05080f čĀҎ760px 48ĈĐЙ0%,#1e2849,ĄĀĵćāѾ30ĐĈӤĆĈ˄ĄĄƏąĀơ.panel{ćĄѼ5ĐĄѼĆčȣ6pxĘăҼ2ĈĀŗh2ĥąǣĎąǁ8ĕčơąĀścanvas{ćĉƷćĎю0čĆэčăǛċćҧ#060915ĚĂįĉĀȬlog{čāѢaxąāѢ38vhċĀɨĖĉʇċċӾĐĂŮĠĉƬ14čĀƛ divċč҄ĩďƫ12ĎĀŏ.AđĄġ ČĀĤBćĂƄa08eĎĀğbiĄĀȵĉĄđĆąіurned-edgeąďˮmodal, unrolling from the axleĆĂġpanel.scġċҚ#e4d7b4,ĄĒȼ 45%,#cbb991ĆĂɗ2a21đĀЋēďʎĉĊҔ22ąąФ2Ĉāļ26pxĄĒƞČāŝĈĂНćĐǮ4ĆąѤ96,74,32,.38),ĄĐȬ4čĂр6ċĐʓunroll .42ĎăɰĉăѬ both;Ďćĩ50% 5ĒĉˌĉāǜĊĀɵąĄʿ,čĀĖĥĄʰ-12pxĄĆǾ-1ĈĐĕĐăƁ7pĚĆǵĄĉʗ3a2c14 0,#8d6c30 12px,#cfab5e 50%ĆĀĘĉċſ12px)ĆĀļ100%ČĊˑ2px 5ĎĀɽĆĐҩ1px 0Ąāŏ55,240,200,.3ĆĊŦĎĀȳ{top:-ĈĐҝĎĀȾąĎǓđĀģ>.burn{īĒ҅šĂе4ĉĂʷ4ČĂеbĲĂе3ċĂд3'/><feDisplacementMap in='SourceGraphic' scale='9ďĂѥx='2' y='2ćĀƹ36ĈĀƹ36ĖĐƉa88f63čĐŒ7ĎĂҡb)đĂҐ0ĄĄшĎĉʹĆĀ˚ h2ąāь5a3d1Ďāŵ .evČāű .mq{Ċā˃ďĀĴmq{čďɢĊĈҢ8ĊĈҡpre-wrapĕĉĕđĎНĐĀųĈđҞ#6b5a40ďĀĤgains spaąĆƋ#7a4f1ďĀĩinpuďĄ˶255,250,236,.75ğāӋa08a58ēĀŝĄċӳĊĄʆćāӼĐċӢĎĆѢĆċŌmodalĝĄƿ40ĎĂП4,7,14,.72)ĶąӍąăƬĆďƣ.modal .mboxĉăĵćĂƖ4ĉĂƷ0ċĀĵrowĉĉЭ12ĎăюunrollĐąʸY(.0Ĉąʔ.25}66ĐĀĥ1.07ĝąʻYċąʼbreakĄđы ceremonĊăѯ .bloomĕĀʃęĆǳ1ĨĄЛąĄ˳255,241,205,.85ĆĄС226,190,110,.4) 16ĄĀİ180,138,58,.14) 3ĆĀĘąąˉ0) 62%)čĉњom 1ĆĉʼĉĄӑ}čĀǻ.w{ĴĀǈĄĀă.98ćĀǈĉĀė5) 26ĐĀİ0) 58ČĀƲflash .5ĒĀƱčĉІom{ĚĄɧ.2)}2ĉĉɦ95ĮĄʩ9ĎĉМflashČĐƈ2ĚąˆćĀɩgainsĘĔŽ2Ćđѕ0px 0 2ċąҖ22pxĎĀŎ spanČćĈğĈˢ5Ćĉį#ffe6a8ĒďĠĊĀʛgain 1ĊĀʛbothćĀģ-delay:ĎćǮ40ms + 240msčĆӆgainĠĆŉ16px)}3ęĐ˯80ĖĀʄ.85ēĀŖ-4px)ĊĀʡcrkĚĀʟČĂǹąĎď50Ĉăʑ5ĈāП14Ąăӗ 6ķćѳĞĀˎ31ĎĂʤ05ĒĐЃĆĀ˳d9cdďċ҄ąĂȄ3ĈĂȄ8301cěąĚĚČƏ50,40,24ĈĎы6,22,14,.92))ĘĂȮĆĆӾ,ĄĔғ3ĜĄǘcrack .12đćш4,.4ąĄǕČĀ˳ĪĆɓśčƻ50 150'><gĉăɋ120608čăɋ3đăɻ-linecap='roundĉčǳ76 -2 L64 40 L86 62 L58 96 L74 120 L62 15ċĕӗĄĀį26 30 MĄĀĶ128 48 MĄĀľ18 104 MąĀņ120 132ĔčƕĐă˝ĈĒɏ5ČāȤcrackēĈǫ34Ćċˊ6degĉċɷ6ďāȐĜċЮĈĂѕĈĈǹribulationċĂвquakċĒǈquake .3ĈĂɰČĀǉquakeĐċҽĆāʓ(0,0)}15ēĀĜ-7px,3px)}32ēĀġ6px,-3px)}5ĔĀġ-4px,2px)}74ēĀġ3px,-1čāЙtipēċП#cdb079ąāȡleftĜčɕ2ąĂǜ 9ćāЩ6ĆĂǱĎĄı3emĈăǌattle repČćĴ .arenaĆĂȊgrid;grid-template-columns:1fr auto 1frĚĕˋĄĀƛ8pxĄĖǰĉĀȑfighĔĖĦďčˮćĉˬĄĀѤ .6sĐĀō .pfćĖŐĄĕʻĒĆҝ0%;ĈĆʾĲĊӹĒĊƌ.08))ĔĀƙĄĄđ8ĈčҔ88ĒĊȔċĂҐobject-fit:coverċćŗB0F1AĒĀűfnĕćșġČ˞ćēʆ6ąēдĐĀť.L.atkĊāǈlungeL ĉăйĉĆҨąĀĸRēĀĸRċĀĸĐĀűhit .pfwċĊăhakeĥĀĺ{ąĎʃrightness(1.7) saturate(.5đĀ˃.downĈĒʋ5;ĄĀŇgrayĆĈǎĈĀķdmg{ĜċŃ30pxęĉөČćǍĉčƧ0ĉăʅb4a0;textĉĂЌ8ĆĐʔ55,120,90,.75čĄĵoat .9đĉƹđĄʻfont-variant-numeric:tabular-numsČĀȁ.critĆćʷfe28aĉĀǅ6ċĀіvsğČɢ2đĎРąđɝ4ĈĊӀ44ķăȶĨđЗčċˆĊđІċĀǜ.wiĆąѾĄċӁĨċŐc19a4cčĀŒloseČĊƜĚĊǟ6ĎċčhĜĂɗX(0)}2ĕĀě-7pxĆĂЊ-3deg)}4ĕĀĬ6ĈĀī2deg)ČċšĉĀŗ4px)}8ĕĀĞ3pxĎĄўlungeL{ĘĀǅ3ēĂМX(18px) ĆĎˤ6)}ĚĀȍđĀŸRĲĀŸ-ĻĀŹfloatĞĄЄ(-50%,10px)}1ĘĊзėĀĻ-40pxĊċ˔ags, tiers, five phasećĊїtagēĂʊČĎŹĊĄɺ7ĈĈˬ0 9ĤĕȶđĘӟđĂǤĄĆɝright:4đăĭ4em;ĆĖЮalign:middleĴĕȀ5Ďēʢ5Ęēʠ5Ćēʞ5đēʜ.tagŃčІ#0f1821ĐĀư4Đēѕ4Ěēѕ4Ĉēѕ4ēēѕ.tag.redďČŌćāʖ9ĎċѶĆĀĹblueĎĀĺ80,130,190,.ćĔʭa9c6eeĈĀĻgreenĎĀļ95,163,122ĊĀļ6dcbĉĀļpurplďĀź150,116,196ĉĀľd3bff0ĉĀŻČĔѹĈĂƭĈĀĥt0ďĀŠ40,151,17ĊČƏc3cbd8ĉĀĺ1ĐĀƛ4,175,74ċĀƚdc9aĉĀĹ2ďĀȓ0,16ďĀɐ6d5e2ĉĀĹ3ĔĀȏĄĉƌĈĀŴ6bffĊĀĺ4ĔĀȍĆĀ˹6ecdĉĀɁt5ďĈƈ26,140,80ĊĀгfd8aąĀȚelēāɸćĐŭ18ĊāɧćĎƱĈāțęāʦ6pxėąӿćĂгcurrentColorĐĊǕēāɨČāʓąĀȎel.muĆĈʺcc39aĐĂ˧ĉĀӘ7ďĘČĉĀĞ14)ćĀŚhuoćĔӭ8d76ěĂу75ďĀśĈĀĞ16ĈĀŚtĆĀƵd5a95cđĀř84,134,59ĔĀŚĈĀğĊĀśjćăŎĄĝǚĐěƮ32,230,223,.6ĐĘȠĉĀğ1ĈĀŜshuiĆĀɰba7e0ĐĀŝ59,111,179,.8ďĀŜĉĀĞ2ĈĀśleĆĀŚc4d6ffĒĀɯ0,180,255ĒĀƸĊĀğ1ĉĀŝwĆĀɲĄĝˡĐĀŜĉāɢ5Ĉĕĸlists and itemćĂˎgridġąȞrepeat(auto-fill,minmax(158px,1fr))ąěǥĆěƜid>*{Ċđȋ@media (ćĉĹ380px){ćĀƋĖąʝĈĜŎĈĜŏđĚЁĠċӺ8čăӭ4Ĉāȹ8ėĕȇ24čĘȀĈĀƋ .nĊċҧ600ėęЪitemĘĜǙğĕД inseĊĜɚlockĈĒŀ8ĉĀět1ĒĎȞćĂŕ4ċĀƙt2ĐĀį58,124,148ĄĎɿćĀĮ3đĀŞ26,86,16ďĀĮ4,ĈĀČ5{ĎĀʲĊěŪēĐȱĎăƧĊĀʉrimĖċǠ-1ďąҞĐĕҧĈăţēĐźĊĀŭ iĝąȔćĕҭ34ćĆƨąČњ340%ĆĐɟ170% 0 0 -17ĉďȳčČŮĈĀȚconicćĄѤfrom 0turn,ĒČҩĆĕǞĒĀĝćĎʋĎĀę62%ąĕȒĔĀġ96Čĉˁrim 6ĕĕʑĆĀɀĨĈůďĐǁ4Ččʗ111a2cĊĀѲ5ąĀʦħĀȴ190,74,52,.2),#ffdca8ĐĀĚćĀȮċĀĖ62%,#ff9f6ađĀĞ96%čąƴrimĒē˸1turnĆĝƸlist>ĉčʫĮĜї16ĔāˇąĀŚ:last-chilĆďїąēŸąĂƐvěċВ95ēċГĎĎɛćĝҙĒĐһ100%ĉăƕleftĊĆӃćċƱ1ąĚĉČĒʸĕĒѴĎĄЧ2emĲćȴ4ĐĒȮ4)ĈĀǙĩĘĊ121c27,#0a0f18ĈĀń .req{float:rightĞēǭąĝҏes{Ěąŗ07)ĊĈƫ2ĒěʃčĕЁĊĈĊĚēĬ.8ēĀЌĄĀƟkvġĂ҂ĊĈƝ3ąĐѩĒĀӅkvĆĝɌĎĞǘĎěǐranĆĝћ8ĒĄāčćƮĎĂʬąċӱeĜĀɦ9ąĀĩstars{Ğěʇ-1ĆĀǒnotečďĻĉēӾĒĘʶċĀŽ6ĢĘǃ16đĘǄċĐӹ#wd .nuĄęɥĜćȶĈăĞum{ĐĕӉĉĂćow.sb>.numĉĞ˝ 0 autoĐĀĩĄĔȿĄĄ˦leftąďҡwd .pathČğɮĈĀęąĔĥĔăƁąğ˙eroĊĜũ12ĈāѭģćɊĐĂѝĎđˡ18ČĊˇ34)ďĆƞĈĀƔ imgĉČҎċāмaspect-ratio:760/200ĎĈѳĈĀōĵĊˮĔā˅ČġşčėŴ55))ęăŕcoĄĀǙ3ĈĘә36ĵďӪ26)ĲĉŽĄĀƋ.sm{ďēň2ĉĈƇĊąʑēąȁčąʊĉĂҝicąĂˋ-left:51ċČǦ5ĎĀį>.icoĕăɲ9Ąĝɾ9ċĀĵrgĆĀťtoĉĄʫrgĚĀыĕāȎąĂВ6ĤĀʅ2)ċĀҖ3/1ĕĀҒĆĄǐąĀƜĎĉƔ.7) ĈĉǪ.ĆąɀmonĄĀǊ6Ĉĉғ68ĩĝѴline)ĈėҬħĀЮmonćĀЮ3ĈČȃ30čĆƎĆěǛ.ph{ŋČȇĐćХċĉũąăǄncpĐĠǆ2ĚĊ˺ąġĎĥąİĵĂŴĈĀƣģąŚččǍĥďž8Ćďždrops{ąēњĈĎʶćĀʫdropčĆ҈ĕĀʴĔĂʯ3px 8px 3px 4ĤāĻ8đĂʕĞăǔĖąɾdrop.lostĈčӺěĠɰ
-#wd .qiĘĐȷďĒőĄĚˡėĎЫ3ĈăƄ.r1,ĈĀČ2ĉĀČ3{ĻĠһĔāҾďāȐēċӏĄĉӕēćɍĎĀѡċĀǓĩĚɫćĊċĈĀȇġĀŀdfe6e4,#8fa39dċĀŀ3ĢĀŀ9a274,#96603aĉĆйeaderboard podiumćĒŁodiuđĆʂąđӁpxČāȪČāŋĄĀŏsvgėĄ˺ĄĀʮĉăǕodsĘĀ҅Ėāщflex-end;gap:ĈđȗodąėѿďăӺĈĆҾ;ĊĂʡ2ćąӁright:2%ĈĀŏčĤȭ.3%ĈăӇ.pin{ĉČ˹ğăҼ1)đćЃĒĢӢąĀš .rowĔąƼpod .slĊĖлąāģ7Ĉāģ7čēˋ 3ėāĵĪėр25ĎāŝēāІąăЍćĒčod.p1 .slİāřĎģǖćģƱĉĐũċĀŬ2ĥĀŬcfe3dc,#7fa79bĊĀŃ3ĥĀŃd99a6a,#8d57ćěѪpod .pnĠĘƩ3ģęǨ06ĐġĒtext-ĆĀĔellipsisĐĚɽČČƔ1ĄĂǌrgba(6,10,20,.95),ąĜщČĀęċĀǖĊĆŉēĘҶĤĀůķĀǑČĀќąĀɪĐĐĚf3d4ĊĀƾĊĞɬ0ČĀƾpaperĈđǃ9ćāљreward revąě˳wd .rvĞđ˸29ĨđšĆđė6,24,42,.86ĄĆƮąđЭ96)ĶđЮČĠɴđĦĂ .rvl .stkėĢĕĎćУ16ĈĔҗġēʽĈĄѱĄĠļrcąČɤĊĥӯĎāȃ22ĄĀюĎĀĶċěńtčĖȋĄďеĆĀǡpilĝĈĄĎĜӹ1ĈĒĺ-left:-60ŌĀǯćč˜4;ĉĜƨ9pxċĀǢpilČĐӎ.3sĎĀǦfcĐĂ˲ĄĀǍ7ĉĔ˗16ąąЮĐĔƒ6ėĞҦĉĀʁĥćƎ4,34,58,.97Ććƌ,20,38,.98))ĒĊ˘ċĀІ6ěĐɈflip .6ďĐɇ5,1.15ĄĐɉ.52sčĔФstyle:preserve-3dċĀɍĈąӈ6ĉĞˈ6ĒĈҦċăĨċĂʜ8ĢĀɓČĀŽ.rġĂŖ7čāЂđĎћĎĀřtğāәĈĄɤđĚѡ1emĎĘ˦kĚĒǤX(.1)}40ĢčďĄĀı1ĎčƁpilĚĀťY(.1ċđѾ.4ďĒǧČčǔipĕĀœperspective(680ćčяY(96degąčɊ.85)}7ĔđӴĘĀń-9ĈĀń1.03)ėĢЫĘĀņ0ĉĀŅĉčȷ秘境 / 连珠ĆĂǅdgČą˒Ěĥӏĕěɲ6ĄĝбĎĦĠdgr{gap:4ėĀĠoĞąђąĦƕČĈќćĀŁ .oiĉĀӀ9ĉĝӀĄĀĦwxgĨċĿ6,1fr);ąĀƺĈĀӻćĆʌwxt{ĊĆȦ1ĻĎӭĊĒƠēąɩĉēʛ07)Ġăӎ7ďģůuser-selectċĀȠt.selĐĢȴąĩǸčĢȰ2ĉĀȊ.clĊĝɇxclr .28ĊĐĒąĀībadĊĀībad .28sĈĀĢe0ĒČѻ214,170,.1ćČөe9dfb6ĉĀĻĐčƘ2Ąċҭ25ĊĀĻa9d2efĉĀĻďčƚ130,200,14ċĀŷa9e0b3ĉĀĻďčƜ224,13ĄĄƭĈĀĻf0aa99ĉĀĻ4ďĀĻ05,175,1ČĀƳe3c79cċāʴxclrĒĒŦĕĝш22);ēĐʈĘĚɒĊĀűbadğďʶ5Ěďɞ7ĕĀĞĄē˜ďČƇ42ĥČƇ 1fr}ĆĤ҆{ĈĔƝ}ęđȟ6ĈĆź64px}ďğȟ0ĊĀĕĉğǰĈćɆĈĀĥćĞĉĆāʞĕĀƘČćЗĈĀŏ60pxĈĀȑprefers-reduced-moĄăǦduce){#wd *,ĆĀǧ*ĈāŭċĨ˲ĉđӝČĨЌ}
+#wd .qiĘĐȷďĒőĄĚˡėĎЫ3ĈăƄ.r1,ĈĀČ2ĉĀČ3{ĻĠһĔāҾďāȐēċӏĄĉӕēćɍĎĀѡċĀǓĩĚɫćĊċĈĀȇġĀŀdfe6e4,#8fa39dċĀŀ3ĢĀŀ9a274,#96603aĉĆйeaderboard podiumćĒŁodiuđĆʂąđӁpxČāȪČāŋĄĀŏsvgėĄ˺ĄĀʮĉăǕodsĘĀ҅Ėāщflex-end;gap:ĈđȗodąėѿďăӺĈĆҾ;ĊĂʡ2ćąӁright:2%ĈĀŏčĤȭ.3%ĈăӇ.pin{ĉČ˹ğăҼ1)đćЃĒĢӢąĀš .rowĔąƼpod .slĊĖлąāģ7Ĉāģ7čēˋ 3ėāĵĪėр25ĎāŝēāІąăЍćĒčod.p1 .slİāřĎģǖćģƱĉĐũċĀŬ2ĥĀŬcfe3dc,#7fa79bĊĀŃ3ĥĀŃd99a6a,#8d57ćěѪpod .pnĠĘƩ3ģęǨ06ĐġĒtext-ĆĀĔellipsisĐĚɽČČƔ1ĄĂǌrgba(6,10,20,.95),ąĜщČĀęċĀǖĊĆŉēĘҶĤĀůķĀǑČĀќąĀɪĐĐĚf3d4ĊĀƾĊĞɬ0ČĀƾpaperĈđǃ9ĈĉЇvipbčĀĻćĉʾ5Ęăŕ5)}#wd .name.vip4{ěČХ54,60,.7Ĉāӗreward revąěѱwd .rvĞđѶ29ĨđǟĆđƕ6,24,42,.86ĄĆȬąđҫ96)ĶđҬČĠ˲đĦƀ .rvl .stkėĢƓĎćҡ16ĈĕĕġēлĈĄӯĄĠƺrcąČˢĊĦŭĎāʁ22ĄĀӌĎĀĶċěǂtčĖʉĄďҳĆĀǡpilĝĈƂĎĝŷ1ĈĒƸ-left:-60ŌĀǯćčњ4;ĉĜȦ9pxċĀǢpilČđŌ.3sĎĀǦfcĐĂѰĄĀǍ7ĉĔѕ16ąąҬĐĔȐ6ėğĤĉĀʁĥćȌ4,34,58,.97ĆćȊ,20,38,.98))ĒĊіċĀІ6ěĐˆflip .6ďĐ˅5,1.15ĄĐˇ.52sčĔҢstyle:preserve-3dċĀɍĈĆņ6ĉĞц6ĒĉĤċăƦċĂК8ĢĀɓČĀŽ.rġĂǔ7čāҀđĎәĎĀřtğĂŗĈĄˢđĚӟ1emĎĘѤkĚĒɢX(.1)}40ĢčƍĄĀı1ĎčǿpilĚĀťY(.1ċđӼ.4ďĒɥČčɒipĕĀœperspective(680ćčӍY(96degąčˈ.85)}7ĔĒŲĘĀń-9ĈĀń1.03)ėĢҩĘĀņ0ĉĀŅĉčʵ秘境 / 连珠ĆĂǅdgČąѐĚĦōĕě˰6ĄĝүĎĦƞdgr{gap:4ėĀĠoĞąӐąĦȓČĈӚćĀŁ .oiĉĀӀ9ĉĞľĄĀĦwxgĨċƽ6,1fr);ąĀƺĈĀӻćĆЊwxt{ĊĆʤ1ĻďūĊĒȞēą˧ĉēЙ07)ĠĄŌ7ďģǭuser-selectċĀȠt.selĐĢʲąĩɶčĢʮ2ĉĀȊ.clĊĝ˅xclr .28ĊĐƐąĀībadĊĀībad .28sĈĀĢe0ĒČӹ214,170,.1ćčŧe9dfb6ĉĀĻĐčȖ2ĄČī25ĊĀĻa9d2efĉĀĻďčȘ130,200,14ċĀŷa9e0b3ĉĀĻďčȚ224,13ĄĄȫĈĀĻf0aa99ĉĀĻ4ďĀĻ05,175,1ČĀƳe3c79cċāʴxclrĒĒǤĕĝӆ22);ēĐІĘĚːĊĀűbadğďд5Ěď˜7ĕĀĞĄēњďČȅ42ĥČȅ 1fr}ĆĥĄ{ĈĔț}ęđʝ6ĈĆǸ64px}ďğʝ0ĊĀĕĉğɮĈć˄ĈĀĥćĞƇĆāʞĕĀƘČćҕĈĀŏ60pxĈĀȑprefers-reduced-moĄăǦduce){#wd *,ĆĀǧ*ĈāŭċĨѰĉĒśČĨҊ}
 
 `);
 const WD_PK1 = wdUnpack(String.raw`
@@ -4202,115 +4304,114 @@ var TIERN=['凡品','黄阶','玄阶','地阶','天阶','仙阶ąĆɆTIERH=['#c3
 // 3-stage reward reveal: tier streak, light pillar, card flip. Tap to skip; off underĄĄȴd motioĉāƿgiftCardĄĂȖg=S.giftĄăʽĄāƼS.gift=null;var ov=$('overlayĄāǩov||!ovĈĀʶcontains('hidden'ĆăӃ
 ĊĀħremovećĀĥ;
 clear(ov)ĊāȖčāȻpanel scrĄąŀĊĀĜburn'}),ĎĀėloomĄĀĘh2',{text:g.title}),
-čĀİmuted',style:'margin:6px 0ĄąĀ'这一版修好了拍卖行点了没反应、渡劫堆气血白堆、突破罚得过重、坊市种子不够几处毛病。给道友赔个不是——'đĀŨgains'},g.lines.mapćā˺x,iĆĄɤćĄɢĄĀƔ--i:'+i,text:x})})ĐĀŞrowČĀǅ-top:12pxĄĀȿbuttoĈĄʹpri',onclick:Ĉā҄ĊĀʼaddćĀʹ}},'谢过')])]ĊąҊreveal(list,after){var ovĐĀчlist||!listĄāƌ||rm()||(ovv&&!ovĜĀѤ){if(after)after(ċĄɯit=list[0];var t=it.t!==null&&ĄĀČĆĆѶ?(it.t|0):(it.q?Ćăō4,it.q|0):2);
-var boxĎĂǟrvlĆĀɵ--rc:'+(TIERH[t]||'#F3E2B3')}ĄĀŃpic=img('item_'+it.id,'ri'ĄĀĠcardĎĀťfc'},[picĎĀӮrnĄĀҥit.name||'所得đāėrtĄĀĨ(it.n>1?'×'+it.n+'  ':'')+(TIERN[t]||'')})]);
-add(boxďāſstkđĀŦpil'}),card]ĄĀǑshut=false;ćĆұiĄĂ˭shutąāȵshut=true;if(boxĉĂЇċĀĎĊĂЈbox);čĀБ}
-boxďćѩ'click',fin);ĄĂӇĊāʃboxċĂқin,1650ĉĀӭtierIn(d,id){var inv=d&&d.inv;var i;if(inv&&inv.stack)for(i=0;i<ĆĀēĉĂУif(ĆĀė[i].id===idąćſĊĀětĊĀŞartsČĀŝartsĐĀŜartsĔĀśąĀĚtąĆшČąҹmodal(msg,oĆāʧnew PromisećāˈreĄĆҙdoneĄĀ˶var inp=o&&o.input?h('input',{type:o.typeĈćѺ?ąĀĈ:'text',value:o.defĆĈŃąĀčćāǍ''ąĆҰo.def)ĄĆƃėāǀmodal'})ċĀқv){if(donĆĈƈdoneĵĀҜres(vĄăƇok=ĨāҊfin(inp?inp.value:true)}},'确认'),noĊĀōĘĀŁnull:false)}},'取消');
-boxģĂʁ mboxĩĂʆmqĄāɮmsg}),inpććКċĂɪ10px 0'},[inpĄć˿,đĂǜ},[ok,no])])ĄĀƻĄĀǯćĉɢe){if(e.target===box)đĀȂąĀĿkeydownďĀŁkey==='Escape'đĀŃĆĉƁćĀĬnter'&&inpąĀİ.value)};
-ĢāɭćĀʷtry{(inp||ok).focus()}catch(e){}},30ċćѻsure(msgĆāƟĆāƳĉĀĥask(msg,defĈāǊćāǞ{input:true,def:def,type:o&&o.typeĊĀŴtoast(msg,bad){if(!msgĉĄДtĎāŲt'+(bad?' bad':'ąćȰmsg});$('toastsČĀȫtĘĄгtĉāƍtĕāƋt)},370ĊāӋunwrap(r){if(!rĆĉȈr!=='object'ąāЧr;if(r.__vČĀđstate&&ĄĀĈĊĀĠ.state;if(r.data&&r.dataċĀĤdata;if(r.resuląĂȑĆĀƝąĀĖ;if(r.view&&r.viewċĀŇviewąāӀr}
-var ROOTN={tian:'天灵根',bian:'变异雷āĀČdan:'单āĀĉshuang:'双ĂĀČan:'三ĂĀĉi:'四āĀĈza:'五行杂ĀĀĊĄĈźPATHN={jian:'剑修',fa:'法修',ti:'体修ĄĀś丹修',zhen:'阵修',fu:'符修',qi:'器修',shou:'驭兽师',xie:'邪修ąĀŝSUBN={shang:'商人',tan:'探险者',none:'专心修行ąĀĬKINDN={mat:'材料',pill:'丹药',tal:'符箓',egg:'兽卵',misc:'杂物',art:'法宝ĆĀűLOTN={w:'武器',a:'护甲',r:'饰品ąĀġTIERC=['t0','t1','t2','t3','t4','t5']Ĉć˅rootLabel(rĆāũr?ROOTN[r.t]+'（'+r.e.join('')+'）':''}
+čĀİmuted',style:'margin:6px 0ĄąĀg.note||''đĀľgains'},g.lines.mapćāːx,iĆĄȺćĄȸĄĀŪ--i:'+i,text:x})})ĐĀŞrowČĀƛ-top:12pxĄĀȕbuttoĈĄʏpri',onclick:ĈāњĊĀʒaddćĀʏ}},'谢过')])]ĊąѠreveal(list,after){var ovĐĀНlist||!listĄāŢ||rm()||(ovv&&!ovĜĀк){if(after)after(ċĄɅit=list[0];var t=it.t!==null&&ĄĀČĆĆь?(it.t|0):(it.q?Ćăģ4,it.q|0):2);
+var boxĎĂƵrvlĆĀɵ--rc:'+(TIERH[t]||'#F3E2B3')}ĄĀŃpic=img('item_'+it.id,'ri'ĄĀĠcardĎĀťfc'},[picĎĀӄrnĄĀѻit.name||'所得đĀӭrtĄĀĨ(it.n>1?'×'+it.n+'  ':'')+(TIERN[t]||'')})]);
+add(boxďāŕstkđĀŦpil'}),card]ĄĀǑshut=false;ćĆ҇iĄĂ˃shutąāȋshut=true;if(boxĉĂ˝ċĀĎĊĂ˞box);čĀБ}
+boxďćп'click',fin);ĄĂҝĊāəboxċĂѱin,1650ĉĀӭtierIn(d,id){var inv=d&&d.inv;var i;if(inv&&inv.stack)for(i=0;i<ĆĀēĉĂ˹if(ĆĀė[i].id===idąćŕĊĀětĊĀŞartsČĀŝartsĐĀŜartsĔĀśąĀĚtąĆОČąҏmodal(msg,oĆāʧnew PromisećāˈreĄĆѯdoneĄĀ˶var inp=o&&o.input?h('input',{type:o.typeĈćѐ?ąĀĈ:'text',value:o.defĆĈęąĀčćāǍ''ąĆ҆o.def)ĄĆřėāǀmodal'})ċĀқv){if(donĆĈŞdoneĵĀҜres(vĄăŝok=ĨāҊfin(inp?inp.value:true)}},'确认'),noĊĀōĘĀŁnull:false)}},'取消');
+boxģĂɗ mboxĩĂɜmqĄāɮmsg}),inpćć˰ċĂɀ10px 0'},[inpĄć˕,đĂǜ},[ok,no])])ĄĀƻĄĀǯćĉȸe){if(e.target===box)đĀȂąĀĿkeydownďĀŁkey==='Escape'đĀŃĆĉŗćĀĬnter'&&inpąĀİ.value)};
+ĢāɭćĀʷtry{(inp||ok).focus()}catch(e){}},30ċćёsure(msgĆāƟĆāƳĉĀĥask(msg,defĈāǊćāǞ{input:true,def:def,type:o&&o.typeĊĀŴtoast(msg,bad){if(!msgĉĄ˪tĎāŲt'+(bad?' bad':'ąćȆmsg});$('toastsČĀȫtĘĄЉtĉāƍtĕāƋt)},370ĊāӋunwrap(r){if(!rĆĉǞr!=='object'ąāЧr;if(r.__vČĀđstate&&ĄĀĈĊĀĠ.state;if(r.data&&r.dataċĀĤdata;if(r.resuląĂȑĆĀƝąĀĖ;if(r.view&&r.viewċĀŇviewąāӀr}
+var ROOTN={tian:'天灵根',bian:'变异雷āĀČdan:'单āĀĉshuang:'双ĂĀČan:'三ĂĀĉi:'四āĀĈza:'五行杂ĀĀĊĄĈŐPATHN={jian:'剑修',fa:'法修',ti:'体修ĄĀś丹修',zhen:'阵修',fu:'符修',qi:'器修',shou:'驭兽师',xie:'邪修ąĀŝSUBN={shang:'商人',tan:'探险者',none:'专心修行ąĀĬKINDN={mat:'材料',pill:'丹药',tal:'符箓',egg:'兽卵',misc:'杂物',art:'法宝ĆĀűLOTN={w:'武器',a:'护甲',r:'饰品ąĀġTIERC=['t0','t1','t2','t3','t4','t5']ĈćʛrootLabel(rĆāũr?ROOTN[r.t]+'（'+r.e.join('')+'）':''}
 
-async ćĀŉpc(method,params,opts){opts=opts||{};if(S.busy&&!opts.force){toast('上一道法诀尚未收势，请稍候',true)ĊĂˮS.busy=true;var n=S.nav||0;var btns=DĐąȭ#wd ĄĂƃ);try{var raw=await W.community.callċĀǉ||{ĄĈ˕v=ąĀӯaw);if(!vĆāƏvĉāƏąĀǐ未收到回应ąĀǈS._raw=rawċĂӂif(v.__ČċđćĀĭĄĀġme)S.me=v.me;if(v.world)S.world=ĄĀď;if(v.guest)S.guesćăʲv.need)S.need=v.needćċƦ.meąĀĚnull;if(v.legacy)SĄĀĈ=ąĀđ;
-if(v.notes&&ĄĀĈąąʻ{S.notes=ąĀėconcat(ĄĀĖćĉҜ30);ąĀģĎćɊn){if(n.k!=='gift')toast(n.v)})ĄĀȖgift)ĄąȞv.giftĄĀƚmsgąĀѥquietĄĀļv.msg,v.okĆċǉĄĀİerr)console.warn('wendao',v.err);
-if(n!==(ąĀѴąąɎ null;
+async ćĀŉpc(method,params,opts){opts=opts||{};if(S.busy&&!opts.force){toast('上一道法诀尚未收势，请稍候',true)ĊĂˮS.busy=true;var n=S.nav||0;var btns=DĐąȃ#wd ĄĂƃ);try{var raw=await W.community.callċĀǉ||{ĄĈʫv=ąĀӯaw);if(!vĆāƏvĉāƏąĀǐ未收到回应ąĀǈS._raw=rawċĂӂif(v.__ČĊӧćĀĭĄĀġme)S.me=v.me;if(v.world)S.world=ĄĀď;if(v.guest)S.guesćăʲv.need)S.need=v.needćċż.meąĀĚnull;if(v.legacy)SĄĀĈ=ąĀđ;
+if(v.notes&&ĄĀĈąąʑ{S.notes=ąĀėconcat(ĄĀĖćĉѲ30);ąĀģĎćȠn){if(n.k!=='gift')toast(n.v)})ĄĀȖgift)ĄąǴv.giftĄĀƚmsgąĀѥquietĄĀļv.msg,v.okĆċƟĄĀİerr)console.warn('wendao',v.err);
+if(n!==(ąĀѴąąȤ null;
 ĄĀČvćĂȄvar em=Ąăǰe&&e.message||e);toast(/E_KV_QUOTA|QUOTA/.test(em)?'仙府典籍已满，天机阁正在清理旧卷，请过一会儿再试':'通讯失败：'+emĐāĨfinally{Ąāİfalse;renderTop();if(S.penĄĄĠt=S.pend;S.penĄĀЀēĂǍgo(t)},0)}}}
 
 // -ĆĀĀ the seal: 丹田 as matter, one stage of the road per realm
 var SEALDEF='<defs>'+
-'<rĊćЍ id="wdg" cx="50%" cy="42%" r="52%"><stop offset="0" stop-color="#22304f"/ČĀĦ1ČĀĦ0a1020"/></ċĀƁĘĀƕdČĀƕ56ĄĀƕ6ĞĀƕ111c33ğĀƕ60b16īĀƕcore" cx="36ĄĀƘ3ĄĀȮ7ğĀȮfff9e6ĎĀƘ.45ČĀĨD6B36AĞĀǁ8c66ĘĀɗlinearČĀǁliq" x1="0" y1="0" x2="0" y2="1ĝĀǂcfe4fďĀ˱.5čĀǂ6f9fe0ĞĀǂ27446f"/></ċĀƮĘĀʄhzčĀЛ0ĄĀЛ0ĞĀʂF3E2B3ĄĀĔopacity=".22ĞĀƩēĀĹĬĀɽfigĹĀɽfff3d4ĞĀƪćĀоĒĀɔfilterĄĀƑwob"><feTurbulence type="fractalNoise" baseFrequency="0.055" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="6"/></filter>'+
-'</defs>ĄĊӰRUNES=ĉāхvar o=''ČĈʖ12ĉċąi/12*Math.PI*2-ĄĀĉ/2,x=(42ćĉІa)*31ćČӺ1),yćĀĠsinĐĀĠrot=(a*180/ĄĀŖ+90ĊĀġk=i%4;o+='<g transform="ćĊӞ'+x+' '+y+') ĄĊӤ'+rot+')">'+(k===0?'<path d="M0 -2.6 L1.8 0 L0 2.6 L-1.8 0Z" fillĉĀЎ':k===1ĉĀŁ-1.2 -2.2 V2.2 MĊĀĎ" strokećĀŃĄĀĐ-width=".8ĆĀŕ2?'<circle r="1.2ĆĀžĄāĸ/>':ĉĀŸ2.1 0 H2.1 M0 -2.1 V0ĤĀű)+'</g>'}ĄĂʣo})(ĄĆѼSEALFIG2='<gćĀŌćāƼČĀŌ ćāȃ5">ćĀƞ42 42 L42 24 ąĀč55 30ćĀč8 42ĉĀě5ćĀĩ29ĊĀč6ĉĀĩ29 30"/></g><gĄĀȥurl(#wdfig)">ąĀɈcx="42ĄĂŦ3" r="3.8"/ĈĀƧ38.5 37.5 H45.5 L48 48 H46 V58 H38 V48 H36ZĄĀŲ'ĊĀȧ='ĨĀƂ4" r="4.3ĊĀƂ42 39 C47 39 50.4 42.6 51 47.2 L53.4 52.6 C49.6 54.8 34.4ĄĀĉ0.6 52.6 L33 47.2 C33.6 42.6 37 39 42 39 ąĀǁĈĀǽ1ĄĀŘ35 51.2 49 51.2 53 52.6ąĀ҃nonećĀњrgba(214,179,106,.55)čĀЛ1"/>'ĈĄ˚dantian(r){
+'<rĊćˣ id="wdg" cx="50%" cy="42%" r="52%"><stop offset="0" stop-color="#22304f"/ČĀĦ1ČĀĦ0a1020"/></ċĀƁĘĀƕdČĀƕ56ĄĀƕ6ĞĀƕ111c33ğĀƕ60b16īĀƕcore" cx="36ĄĀƘ3ĄĀȮ7ğĀȮfff9e6ĎĀƘ.45ČĀĨD6B36AĞĀǁ8c66ĘĀɗlinearČĀǁliq" x1="0" y1="0" x2="0" y2="1ĝĀǂcfe4fďĀ˱.5čĀǂ6f9fe0ĞĀǂ27446f"/></ċĀƮĘĀʄhzčĀЛ0ĄĀЛ0ĞĀʂF3E2B3ĄĀĔopacity=".22ĞĀƩēĀĹĬĀɽfigĹĀɽfff3d4ĞĀƪćĀоĒĀɔfilterĄĀƑwob"><feTurbulence type="fractalNoise" baseFrequency="0.055" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="6"/></filter>'+
+'</defs>ĄĊӆRUNES=ĉāхvar o=''ČĈɬ12ĉĊӛi/12*Math.PI*2-ĄĀĉ/2,x=(42ćĉ˜a)*31ćČӐ1),yćĀĠsinĐĀĠrot=(a*180/ĄĀŖ+90ĊĀġk=i%4;o+='<g transform="ćĊҴ'+x+' '+y+') ĄĊҺ'+rot+')">'+(k===0?'<path d="M0 -2.6 L1.8 0 L0 2.6 L-1.8 0Z" fillĉĀЎ':k===1ĉĀŁ-1.2 -2.2 V2.2 MĊĀĎ" strokećĀŃĄĀĐ-width=".8ĆĀŕ2?'<circle r="1.2ĆĀžĄāĸ/>':ĉĀŸ2.1 0 H2.1 M0 -2.1 V0ĤĀű)+'</g>'}ĄĂʣo})(ĄĆѼSEALFIG2='<gćĀŌćāƼČĀŌ ćāȃ5">ćĀƞ42 42 L42 24 ąĀč55 30ćĀč8 42ĉĀě5ćĀĩ29ĊĀč6ĉĀĩ29 30"/></g><gĄĀȥurl(#wdfig)">ąĀɈcx="42ĄĂŦ3" r="3.8"/ĈĀƧ38.5 37.5 H45.5 L48 48 H46 V58 H38 V48 H36ZĄĀŲ'ĊĀȧ='ĨĀƂ4" r="4.3ĊĀƂ42 39 C47 39 50.4 42.6 51 47.2 L53.4 52.6 C49.6 54.8 34.4ĄĀĉ0.6 52.6 L33 47.2 C33.6 42.6 37 39 42 39 ąĀǁĈĀǽ1ĄĀŘ35 51.2 49 51.2 53 52.6ąĀ҃nonećĀњrgba(214,179,106,.55)čĀЛ1"/>'ĈĄ˚dantian(r){
 if(r<=0ąăʭĆĀӸclass="dtbr"ĊĀȹ42" r="13"ċĀɫhz)"/><gćĀĹspinĆāĹĄĂЯēĀʌ0" r="2.2"/ĊĀĠ53ĄĀų7" r="1.7ćĀѫĊĀŦ2čāȠĊĀņ31ĄĀŧąĀņ9ČĀŧ47ĄĂɼ3ĄĀĠ4čĀĠČĀǼ.1ćĀҁif(r===1ćĀɂĈĀƜblob" filterĆĀȪwob)ČāƠ27 C51 27 56 33.5 56 42 C56 50.5 51 57 42 57 C33 57 28 50.5 28 42 C28 33.5 33 27 42 27 ZČĀʤliq)ĉāȧ82ĚĀъĒĀщ</g><ellipsĐĀЦ37.5ĄĀɭ6" rx="4.8" ry="2.8čĀЎĈĀƊ38"/ĈĀɎ2ďĀґĐĀʇ4.5ąĀŒrgba(226,190,110,.14)ĉĀˆĝĀӐ1ćĀŋĄĀȭcorečĀӔcoreČĀʻ32.6 A9.4 9.4 0 0 1 51.4 42ēāƴĆĀǽČĀɜ.3ĊĀʛ5ĆĀĠlinecap="roundąĀʃĉĀӡ8.4ĄĀɵ8Ąāŋ4ĉĀɫdf4ċĂĞĉĀɪ3ĢĀɪęĀɨ)"/>'+Ąā҆ĆĄӬĊāĈaura"ęāœ20ĕĀȬ6ecd0đĀȬďĀȇčĀƴ6ĝĀНĆĀƵ2+'ęāʻ3d4ēĀƽ24Ąāȑ5ČāȲ60ČāȲ2Ĕāɓ60ĔĀĠ24ČĀŁ5ćāɴĎąŞlayout
-var TABS=[[Ąđб'洞府','府'],['explore','游历','游'],['bag','行囊','囊'],['market','坊市','市'],['arena','论道','道'],['sect','宗门','宗'],['lb','榜单','榜'],['bio','道册','册']ĉĆќtcl(tĆĆіTIERC[t|0]||'t0'ĉĊʜimEĉĀĪ(t|0)>=4ďďǊrimąĐƫ'ĐĐƊtierTagĈĀŊĎĀŁtag '+tcl(tĄćӔĄĊœ|0]||('T'+(t|0))})}
-// The tab bar keeps one gold seal that slides to the active tab and stamps down on itĈċ˻ĄąґabsĆĎĔ$('tabs');var old=tĐĆӐĆĆӌċĄľoldĉĉѕċďǶold[i]);
-if(ĄĆЙ||S.need){tĕċőąĊҹtĚċЯvar inĎĀƫ('.inąčƉind){ind=ĎĀʔindąċȁ')]);ċď˳indĄĉʚat=0;TABSďĆЬx,i){if(S.tab===x[0])at=iČĀŌďĉ˚ĉĀı?'on':'Ēĉ˩go(x[0])}},[ďĀǁcĄĉɍx[2]}),ćĀĠĄĀĕ1]})]))});
-indēČИw',(100/TABSąćŊĆĄʑ4)+'%');ĖĀĽćčſat)ĄĀŦďĀʲstamp');void ind.offsetWidth;ċĀĲaddĆĀį}ĎĀҳoĆĎӇop=clear($('top'ĄĎ˔m=SĄćʩ!m){topĚĉӈrow sb'đĀɛnameąČǩ问道'ĊĀɝċČȢtext:'今日踏仙路，一念问长生'})])ċċѼst=m.staĄĈƑvar pctv=ĕđӨm.pct||0ĄĀǕr=36,c=ćąƖr,dash=(pctv/100*cĉąŅĄċɠeaďĎŸseal',title:(m.realm||'')+' · 修为 '+m.pct+'%'});
-seaĉēǄ'<svg viewBox="0 0 84 84" aria-hidden="true"ĄĂȁDEF+
+var TABS=[[ĄđЇ'洞府','府'],['explore','游历','游'],['bag','行囊','囊'],['market','坊市','市'],['arena','论道','道'],['sect','宗门','宗'],['lb','榜单','榜'],['bio','道册','册']ĉĆќtcl(tĆĆіTIERC[t|0]||'t0'ĉĊʜimEĉĀĪ(t|0)>=4ďďƠrimąĐƁ'ĐĐŠtierTagĈĀŊĎĀŁtag '+tcl(tĄćӔĄĊœ|0]||('T'+(t|0))})}
+// The tab bar keeps one gold seal that slides to the active tab and stamps down on itĈċˑĄąґabsĆčӪ$('tabs');var old=tĐĆӐĆĆӌċĄľoldĉĉѕċďǌold[i]);
+if(ĄĆЙ||S.need){tĕċőąĊҹtĚċЅvar inĎĀƫ('.inąčşind){ind=ĎĀʔindąċȁ')]);ċďˉindĄĉʚat=0;TABSďĆЬx,i){if(S.tab===x[0])at=iČĀŌďĉ˚ĉĀı?'on':'Ēĉ˩go(x[0])}},[ďĀǁcĄĉɍx[2]}),ćĀĠĄĀĕ1]})]))});
+indēČˮw',(100/TABSąćŊĆĄʑ4)+'%');ĖĀĽćčŕat)ĄĀŦďĀʲstamp');void ind.offsetWidth;ċĀĲaddĆĀį}ĎĀҳoĆĎҝop=clear($('top'ĄĎʪm=SĄćʩ!m){topĚĉӈrow sb'đĀɛnameĄĀɝ'问道'ĊĀɝċČǸtext:'今日踏仙路，一念问长生'})])ċċѼst=m.staĄĈƑvar pctv=ĕđҾm.pct||0ĄĀǕr=36,c=ćąƖr,dash=(pctv/100*cĉąŅĄċɠeaďĎŎseal',title:(m.realm||'')+' · 修为 '+m.pct+'%'});
+seaĉēƚ'<svg viewBox="0 0 84 84" aria-hidden="true"ĄĂȁDEF+
 ęĂ˿40ČăĜg)ęăȺ3)"/>'ěĀŒ34ĔĂ˱7D693FĆĂ˱ĈăĒĎĄӵ6Ċăƞring">'+RUNES+ęĀŻ28ĥĄɏ3ďăЅ.ćăƺdasharray="1.5 ąĂғĜĀǹ2čĀɌd)ěĄŰ20ćăʜĝĀưĄĂӗ
-ąĄ˥m.r|0)ěĀƐ'+r+'ĘĀŠ0,0,0đĄĐĜĄȨĘĀŗĔąˇ2ĈĀɜČă˶ĐĀɳ'+dash+' '+cĈāŚ+'"ĉĆƖĄĆſ-90 42 42)"/></svg>'ĄāĻĚāɾealmċĒяĉāƒ})Ąāǉtags=[m.path?ĒĂќrĆāʈPATHNĄĀī]ĄċӦ,m.subēĀĹgoląĀĺSUBN[m.subĈĀĸtitleēĀĺpurpląāФĄĀĩĄĀĸĄĎКbarsĎāʂbarsđċгģāҌm.nameđāҎstat nuąĀɐ'◆ '+fmt(m.ls)+'  ⚡'+m.st+'/'+m.stMax})])Ēċѕąčʼgap:6px;Ąċҕ2px 0 4px'},tagsĐĎɨar hpĆăȯĆċӖwidth:'+pct(m.hp,st.hp)+'%'ĒĀƄbar mĞĀŇmp,st.mĜĀŇxěĀŇvĖĀļrow sb ĆĀəĊĀʛtext:'ĂĂĲfmt(m.xp)+'/ąĀčneedăĂŕ+'+fmt(st.ratePerHour)+'/时'ďĂҴm.ageĄĀʢlife+'岁 · 战力 ĆĀńpower)})])]);
-ĠĂˢĊĀˌ12px;align-items:center;flex-wrap:nowrap'},[seal,bars]));
+ąĄ˥m.r|0)ěĀƐ'+r+'ĘĀŠ0,0,0đĄĐĜĄȨĘĀŗĔąˇ2ĈĀɜČă˶ĐĀɳ'+dash+' '+cĈāŚ+'"ĉĆƖĄĆſ-90 42 42)"/></svg>'ĄāĻĚāɾealmċĒХĉāƒ})Ąāǉtags=[m.path?ĒĂќrĆāʈPATHNĄĀī]ĄċӦ,m.subēĀĹgoląĀĺSUBN[m.subĈĀĸtitleēĀĺpurpląāФĄĀĩĄĀĸĄĎ˰barsĎāʂbarsđċгĘāҌĄċ˧ēāҤ+(m.vip>=4?' vip4ĉċĻ.name}),vipBadge(m.vip)]Đāӎstat nuąĀʐ'◆ '+fmt(m.ls)+'  ⚡'+m.st+'/'+m.stMax}ĄĀŉĖĎŲgap:6px;Ąċӕ2px 0 4px'},tagsĐĎɾar hpĆăɯĆČĖwidth:'+pct(m.hp,st.hp)+'%'ĒĀƄbar mĞĀŇmp,st.mĜĀŇxěĀŇvĖĀļrow sb ĆĀəĊĀ˃text:'ĂĂŲfmt(m.xp)+'/ąĀčneedăĂƕ+'+fmt(st.ratePerHour)+'/时'ďĂӴm.ageĄĀʢlife+'岁 · 战力 ĆĀńpower)})])]);
+ĠĂТĊĀˌ12px;align-items:center;flex-wrap:nowrap'},[seal,bars]));
 }
-ĈďȾĄĔǷS.tab=tab;S.navĈĉҤ+1;ĉăѧ;ink();try{W.scrollTo(0,0);D.documenąĐĥĆĀğp=0;D.bodyĊĀĒvar wd0ĉĐѰwd0)wd0ĉĀĦĈČȔvar apĈăİapp'));apěĀȻcenter ĊĂӧ…'}))ćċŒ){ĄĉһtabąĂӱVIEWS[tab]ąĉӲgift&&tab==='home')ĈĉӦąďҋ,6ĊČƃscreen(ćĖǧĒĀǂdd(appĄĕѭĆĐҋąĊƖappĎĄӏbootčċɈboot(){ĉĊƫĄĖȠwait rpc('boot',{},{quiet:true}ĄċƐ)ĆċǛS._raw;ĄĀƼĎāˤcarąĄŵh3Ćāń无法连接ĒčȮĉĀɹ页面未能从服务端取得回应。原始返回：'+JSON.stringify(rawĉĊӦ0)}),đčЈbootĄĀŕ重试'ĄāŊąăʯĈċǊ{ĊċǋrenderGuest(vČĀįneed==='create'ąĀɊCreateĎĀĭdata&&v.data.endąĀĮEndĉĀīgo(ĄĀЭĎĄĉąĀƅ{ĊāŤĆĀɵero('guest'ďĀɕēĀʃĆăӤċăЯubēăӡĎĀĩevąĀĨ登录 NodeLoc 后方可踏上仙路。\n\n从凡人到仙人：挂机修炼ĀĐȬ、游历奇遇、炼丹炼器、论道竞技、宗门、赛季榜单。ĞĀІ下面是当前的境界榜。'})]),lbCardĄĀɔ)]ďĀȪĆĀʃċĀȫvar name=ĈĎѳplaceholder:'取一个道号（2-8 字）',maxlength:8ĄĎѳ(ąčҺdataset.user||'ĈĕІ8)ĄČǃlgĆċӃ||ąċӖ;
-ċĀʯąĀлĤĀʰāĀɘěĀʈ你是一个普通人。\n夜里抬头，远处山顶有修士御剑而过。\n从今天起，你也要走那条路ĂĀɵlg&&lg.livesĎĖưnotĆĄЎ道统 '+lg.pts+' 点，这是你的第 '+(ąĀĽ+1)+' 世。前世的功法与神通会随你转生。'}čĎ˅ĕĎ˱name]ċāƹđďĐċā˃ĄąĘrĉāʲĄĀɑ,{name:name.value.trim()});if(r&&r.okąĀОRoot(r)}}},'定下道号')]đĀѕĄĀĦ{var root=ččӉroot)||ĉĕǣrootĊąƦ
-īāЦ测āčѥęĀ˰一块灵石贴在你额头上，亮了ĂāŴ'+Ĉčɭoot)ĝāŞ灵根决定修炼速度与术法亲和。ĀĎę万中无一；Āčӟ最难，但走过的人也最多ĒāƤĕđɨ0ďđɨdisabled:!m||m.rerolls<=0ěĀ˚xĉĀ˚reroll');if(x&&x.ok)ĈĀʙx)}},'逆天改命（剩 '+(m?ĆĀŧ:0)+' 次）'ğĀѡċĆƈąāҋ},'就这样，上路')]ēĀМEndĒāɯĄĀ˶var d=v.dataĆąЏĚāʋ转世后的ĀĀҊĐāʅąĄďĬĀыm.ascended?'飞升':'坐化ĚĀњĉĀį九重雷劫散尽，云开处金光万丈。\n'+m.name+'，飞升ăĀѷ仙籍已录。你可以转世，带着道统从头再修一世。'ĄĀƮ+'于'+Ąă˩岁寿元耗尽，坐化于洞府ĂĀĹ修仙是一场人生。这一世到此为止ĒĀѫkvĆĆҹąāě此生道统Đăю'+'+(dĄāѰPreview||0)+' 点ĄĀĮćĀŃ累计ĒĀŃąēȶąĀņ&&ąĀĉ.pts)||(ąāӑ&&SċĀę0)ĒĄŗĊāű道统每点：修炼与气血 +2%。转世保留最高阶的两部Āāл所有神通ċĀȁŞāгrebirthĥāдĉāė},ĀĀҨ'đĀǰēāˏ传记'ĔăƠČāŸbio')}},'回顾此生ąāҐČă˖homeĈĈƔutCard(tąāҡws=tċēśsĉĈƯċĐƉut'+(s.done?' ok':'')đąƘmkĄĀ˅ąĀĬ✓':'○ĒćĭgĄĐҬĉĀѱsĈąǌĖĀРąĀŚ已完成 · 灵石 +30':s.hint})]),(!s.done&&s.k===ĆĈҌ)?ĐĀЎsmĖā˟ĆĀķ}},'去ĀĈӈĄąˌ)}ĆĄŐģĀ˘初入仙途Ğăǈ三件小事，熟悉修行。做完各得灵石，圆满再赠 60ĂăǗąĎҼrows)ąĀČ[ġēҤ-top:8pxąĀŦ里程碑：筑基渡劫后择道途 · 金丹后可兼修副业、开宗立派 · 元婴后北冥寒渊'})])ĄĈǰTIPS={ĄĀȌ:Āĉǐ消耗体力（每半小时回 1ĀĂӯ上限 10；每日 20ĀĂņ。事件有选项有后果，遇妖兽自动战斗；地图随境界解锁。',arena:ĀĉǚĀĀĬ5 次，打的是对方的快照，输赢只影响论道值与赛季积分。世界 BOSS ĀĀĥ3 次出手，次日按名次领赏。',sect:'āĀƴ花 5000ĀĀ˿āĀƸ，或拜入他人宗门。捐献换贡献，宗门升级全员修炼加成；库藏可升建筑，本周宗务全员ĂĀłdg:'秘境每日两次：每层从几条路里选一条，气血不回，机缘只在此行有效。随时「收手」把战利品带走，倒下只剩一半。',wxāĐ˛连珠：交换相邻两子，横竖三子按「金生水、水生木、木生火、火生土、土生金」相连即消。每日一局计分，练习不限。',bounty:'每日三张悬赏，按今日所为自动计数，完成后来此领取；三张皆结悟性 +1，连续七日得宝匣。',farm:'灵田：播下种子等它长，途中的虫害干旱要来处理，不然减产。收成是炼丹材料，偶有变异。ĊĘҕseenTip(k,set){ąĐŰs=W['local'+'Storage'];if(set)s.setItem('wdtip_'+k,'1ĆĉƁ !!s.gĎĀĢĈđѲS.tips=S.tipĆĐɯset)S.tips[k]=1ćĀŌĆĀĔ}ĊĉсpCard(k){if(!TIPS[k]||ĆĀǑċď˲ĔĖɓcard tipďāƎ提示ĔăưĕĆѯgrowĄāĿĄĀƌ}ĒĂŚĔāɋćĀʉtrue);ĬĖʾ},'知道了'ĉąƕ el}
+ĈďɔĄĔȍS.tab=tab;S.navĈĉӤ+1;ĉăҧ;ink();try{W.scrollTo(0,0);D.documenąĐĻĆĀğp=0;D.bodyĊĀĒvar wd0ĉĐ҆wd0)wd0ĉĀĦĈČɔvar apĈăŰapp'));apěĀȻcenter Ċăħ…'}))ćċƒ){ĄĉӻtabąăıVIEWS[tab]ąĊĲgift&&tab==='home')ĈĊĦąďҡ,6ĊČǃscreen(ćĖǽĒĀǂdd(appĄĕ҃ĆĐҡąĊǖappĎąďbootčċʈboot(){ĉĊǫĄĖȶwait rpc('boot',{},{quiet:true}Ąċǐ)ĆċțS._raw;ĄĀƼĎāФcarąĄƵh3Ćāń无法连接ĒčɮĉĀɹ页面未能从服务端取得回应。原始返回：'+JSON.stringify(rawĉċĦ0)}),đčшbootĄĀŕ重试'ĄāŊąă˯ĈċȊ{ĊċȋrenderGuest(vČĀįneed==='create'ąĀɊCreateĎĀĭdata&&v.data.endąĀĮEndĉĀīgo(ĄĀЭĎĄŉąĀƅ{ĊāŤĆĀɵero('guest'ďĀɕēĀʃĆĄĤċăѯubēĄġĎĀĩevąĀĨ登录 NodeLoc 后方可踏上仙路。\n\n从凡人到仙人：挂机修炼、渡劫、游历奇遇、炼丹炼器、论道竞技、宗门、赛季榜单。ĞĀІ下面是当前的境界榜。'})]),lbCardĄĀɔ)]ďĀȪĆĀʃċĀȫvar name=ĈĎҳplaceholder:'取一个道号（2-8 字）',maxlength:8ĄĎҳ(ąčӺdataset.user||'ĈĕМ8)ĄČȃlgĆČă||ąČĖ;
+ċĀʯąĀлĤĀʰāĀɘěĀʈ你是一个普通人。\n夜里抬头，远处山顶有修士御剑而过。\n从今天起，你也要走那条路ĂĀɵlg&&lg.livesĎĖǆnotĆĄю道统 '+lg.pts+' 点，这是你的第 '+(ąĀĽ+1)+' 世。前世的功法与神通会随你转生。'}čĎЅĕĎбname]ċāƹđďŐċā˃ĄąŘrĉāʲĄĀɑ,{name:name.value.trim()});if(r&&r.okąĀОRoot(r)}}},'定下道号')]đĀѕĄĀĦ{var root=čĎĉroot)||ĉĕǹrootĊąǦ
+īāЦ测āčҥęĀ˰一块灵石贴在你额头上，亮了ĂāŴ'+Ĉčʭoot)ĝāŞ灵根决定修炼速度与术法亲和。ĀĎř万中无一；ĀĎğ最难，但走过的人也最多ĒāƤĕđʨ0ďđʨdisabled:!m||m.rerolls<=0ěĀ˚xĉĀ˚reroll');if(x&&x.ok)ĈĀʙx)}},'逆天改命（剩 '+(m?ĆĀŧ:0)+' 次）'ğĀѡċĆǈąāҋ},'就这样，上路')]ēĀМEndĒāɯĄĀ˶var d=v.dataĆąяĚāʋ转世后的ĀĀҊĐāʅąĄġĬĀыm.ascended?'飞升':'坐化ĚĀњĉĀį九重雷劫散尽，云开处金光万丈。\n'+m.name+'，飞升ăĀѷ仙籍已录。你可以转世，带着道统从头再修一世。'ĄĀƮ+'于'+Ąă˩岁寿元耗尽，坐化于洞府ĂĀĹ修仙是一场人生。这一世到此为止ĒĀѫkvĆĆӹąāě此生道统Đăю'+'+(dĄāѰPreview||0)+' 点ĄĀĮćĀŃ累计ĒĀŃąēɌąĀņ&&ąĀĉ.pts)||(ąāӑ&&SċĀę0)ĒĄŗĊāű道统每点：修炼与气血 +2%。转世保留最高阶的两部Āāл所有神通ċĀȁŞāгrebirthĥāдĉāė},ĀĀҨ'đĀǰēāˏ传记'ĔăƠČāŸbio')}},'回顾此生ąāҐČă˖homeĈĈǔutCard(tąāҡws=tċēƛsĉĈǯċĐǉut'+(s.done?' ok':'')đąǀmkĄĀ˅ąĀĬ✓':'○ĒćŭgćąȄĆĀѱsąąǞęĀРąĀŚ已完成 · 灵石 +30':s.hint})]),(!s.done&&s.k===ĆĈӌ)?ĐĀЎsmĖā˟ĆĀķ}},'去ĀĉĈĄąЌ)}ĆĄŐģĀ˘初入仙途Ğăǈ三件小事，熟悉修行。做完各得灵石，圆满再赠 60ĂăǗąĎӼrows)ąĀČ[ġēҺ-top:8pxąĀŦ里程碑：筑基渡劫后择道途 · 金丹后可兼修副业、开宗立派 · 元婴后北冥寒渊'})])ĄĈȰTIPS={ĄĀȌ:ĀĉȐ消耗体力（每半小时回 1ĀĂӯ上限 10；每日 20ĀĂņ。事件有选项有后果，遇妖兽自动战斗；地图随境界解锁。',arena:ĀĉȚĀĀĬ5 次，打的是对方的快照，输赢只影响论道值与赛季积分。世界 BOSS ĀĀĥ3 次出手，次日按名次领赏。',sect:'āĀƴ花 5000ĀĀ˿āĀƸ，或拜入他人宗门。捐献换贡献，宗门升级全员修炼加成；库藏可升建筑，本周宗务全员ĂĀłdg:'秘境每日两次：每层从几条路里选一条，气血不回，机缘只在此行有效。随时「收手」把战利品带走，倒下只剩一半。',wxāĐЛ连珠：交换相邻两子，横竖三子按「金生水、水生木、木生火、火生土、土生金」相连即消。每日一局计分，练习不限。',bounty:'每日三张悬赏，按今日所为自动计数，完成后来此领取；三张皆结悟性 +1，连续七日得宝匣。',farm:'灵田：播下种子等它长，途中的虫害干旱要来处理，不然减产。收成是炼丹材料，偶有变异。ĊĘҫseenTip(k,set){ąĐưs=W['local'+'Storage'];if(set)s.setItem('wdtip_'+k,'1Ćĉǁ !!s.gĎĀĢĈđҲS.tips=S.tipĆĐʯset)S.tips[k]=1ćĀŌĆĀĔ}ĊĉҁpCard(k){if(!TIPS[k]||ĆĀǑċďвĔĖɩcard tipďāƎ提示ĔăưĕĆүgrowĄāĿĄĀƌ}ĒĂŚĔāɋćĀʉtrue);ĬĖ˔},'知道了'ĉąƕ el}
 var VIEWS={};
-VIEWS.home=ĒĂǔĊąʻhomeĖąʻćěɓĥąƙćăǋ,ąăǇ.home,ćĈӧ;
-var kids=ĄĄ˞home'),d.tut?ąĂƟd.tutĆćȳifąĐʭąĉʉkidĄęţģāѹ近况ĊĀ˪},ąĀŏąĄҒ6)ċĂȅnĖĂȅĈĄ˲n.v})})ĒĀЃflat ĔĀЈąĐґ[];ċăп清空')]));
+VIEWS.home=ĒĂǔĊąʻhomeĖąʻćěɩĥąƙćăǋ,ąăǇ.home,ćĉħ;
+var kids=ĄĄ˞home'),d.tut?ąĂƟd.tutĆćɳifąĐ˭ąĉˉkidĄęŹģāѹ近况ĊĀ˪},ąĀŏąĄҒ6)ċĂȅnĖĂȅĈĄ˲n.v})})ĒĀЃflat ĔĀЈąĐӑ[];ċăп清空')]));
 // cultivate
 var btBtn;
-if(d.trib)btBtnĩēМopenTribąĀŀ}},'天劫当前！');ĆęĚm.canBt&&d.majorĤĀŦğăľtrib.starĄĖҷĄăĨĆĄЖhome.trib)ĆĀƧĎĀę}},'引动'+(d.nextRĈĉʤ之劫ĐĀǅĹĀƼb0=snapStĄĄƢĊĀǌbąĀǄ){showBtResult(r,b0)}}},'突破 ĒĀƧ（'+ĈěҪ(d.btChance||0)*100)+'%）ĆĀǋďĀǀĆĄУtrue},Āćѧ未满ąĊӳDBFN={qi:{n:'走火入魔',e:'修炼 ×0.5'},injury:{n:'重伤',e:'气血/攻防 ×0.7，ăĀĦ6'},heart:{n:'心ăĀŁ灵力ăĀĢ暴击 −3%ĄĀĩ75，ĀĀǤ−10%'}};var dbfs=['qi','injury','heart'].filterćāşkćēь.dbf&&m.dbf[k]>m.now}ČāƎćĀĮ{k:k,n:DBFN[k].n,eĆĀċe}ĄĆŖcultCard;var breathĒĔ˸ğĀҶbreatheĊĀҳ){ąěƘąĀŧĘēѫąċǐĄāǤĈāǮ,95ĄĀЬ吐纳ąĀˁbq=d.bounty||{done:0,total:3,claimĈĜƊąĀĲBtn=bq.ĆĀĞēă˝ ĕāȗS.bioSub='bounty';ĊĄŚ领悬赏Ąă˯;
-ąĀǯ=ģāѴĀČЇĚćĺ(d.role||'散修')+(d.sectName?' · '+ćĀĐ:ąĊҊ今日悬赏 '+bq.done+'/'+bq.totalģąĐĆĆīĉĄӊćĆČm.ĈĆĎćĀĵ功法đąń《'+d.gfĄąƻ》'+['黄','玄','地','天'][d.gf.grade]+'阶ĎąŚ修炼ĐĀŗĒĉĕĀċƄ/时（×'+ĄĀęĊĝʍ）离线Āăѽ'+d.capHours+' 小时ĎĀŮ寿元ėĉŚ / ćĉŜ 岁'+(m.life-m.age<30?'  ⚠ 大限将至':'')}),dbfąĂʑ?ĊĀŧ状态ĆĆӕČĀģĄĀŸ},[dbfčėӕĆāǤx.n+' 余 '+dur(m.dbf[x.k]-m.nowăāчx.e+'）'})ĄĔď　'ĜĄɘ到点自动消，养神丹可立刻尽去ăćЦąĊǎbuffs&&ĄĀĈĒĀǓ丹效ĆĀǓĘĀįċĀɘbufčĀǤćĝӍb.n+' ×'+b.mĈĀˍĆĀǐ、'ąĖʏ]ĮĆіbreath,btBtn,bqBtnĝąѮ吐纳：每 10 分钟一次，āĄɱ0 次。突破失败会āĂŉ；大境界需渡劫。'+(d.btStreak?'  已连败 '+ćĀē+'ĀĄˏ下次成功率 +ĊĀĬ*10)+'%（保底）。ĄĀп]);ćăǇćāыif(d.farm){var ftc=ąĄĉ'farm');if(ftcĈăȅftc)}ĈĀĎarmĄăɇfarmĄăőpath
-if(d.canPath||d.canSubĄĀĉRespec){var list=ąĀğ?d.subs:d.paths;var isSubĆĀġ&&!ĆĀŗ;ĬăʞisSub?'兼修':ćĀƜ?'择道':'转修')ĚāхĄĀļĀąċāąƿ，一次定终身ċĀŇ筑基已成，择一条道走下去ĂĀő需 '+d.respecCost+' Āąɧ修为减半ĒĀūgrid'},lisČĆĪpĖăФitem path'+(m.path===p.id?' on':'')ėăſif(!(await sure('选择「'+pĄāѦ」？')Ċĝ˾ĉĂʰĄĀȌsub':'path',{id:p.idċĆʠĊăѷĎąрąĘЦp.icon+' ąĀžĜąҼp.desc})])}))]))}
+if(d.trib)btBtnĩēќopenTribąĀŀ}},'天劫当前！');Ćęİm.canBt&&d.majorĤĀŦğăľtrib.starĄĖӍĄăĨĆĄЖhome.trib)ĆĀƧĎĀę}},'引动'+(d.nextRĈĉˤ之劫ĐĀǅĹĀƼb0=snapStĄĄƢĊĀǌbąĀǄ){showBtResult(r,b0)}}},'突破 ĒĀƧ（'+ĈěӀ(d.btChance||0)*100)+'%）ĆĀǋďĀǀĆĄУtrue},Āćѧ未满ąċĳDBFN={qi:{n:'走火入魔',e:'修炼 ×0.5'},injury:{n:'重伤',e:'气血/攻防 ×0.7，ăĀĦ6'},heart:{n:'心ăĀŁ灵力ăĀĢ暴击 −3%ĄĀĩ75，ĀĀǤ−10%'}};var dbfs=['qi','injury','heart'].filterćāşkćēҌ.dbf&&m.dbf[k]>m.now}ČāƎćĀĮ{k:k,n:DBFN[k].n,eĆĀċe}ĄĆŖcultCard;var breathĒĔиğĀҶbreatheĊĀҳ){ąěƮąĀŧĘēҫąċȐĄāǤĈāǮ,95ĄĀЬ吐纳ąĀˁbq=d.bounty||{done:0,total:3,claimĈĜƠąĀĲBtn=bq.ĆĀĞēă˝ ĕāȗS.bioSub='bounty';ĊĄŚ领悬赏Ąă˯;
+ąĀǯ=ģāѴĀČчĚćĺ(d.role||'散修')+(d.sectName?' · '+ćĀĐ:ąĊӊ今日悬赏 '+bq.done+'/'+bq.totalģąĐĆĆīĉĄӊćĆČm.ĈĆĎćĀĵ功法đąń《'+d.gfĄąƻ》'+['黄','玄','地','天'][d.gf.grade]+'阶ĎąŚ修炼ĐĀŗĒĉĕĀċǄ/时（×'+ĄĀęĊĝʣ）离线Āăѽ'+d.capHours+' 小时ĎĀŮ寿元ėĉŚ / ćĉŜ 岁'+(m.life-m.age<30?'  ⚠ 大限将至':'')}),dbfąĂʑ?ĊĀŧ状态ĆĆӕČĀģĄĀŸ},[dbfčĘĕĆāǤx.n+' 余 '+dur(m.dbf[x.k]-m.nowăāчx.e+'）'})ĄĔŏ　'ĜĄɘ到点自动消，养神丹可立刻尽去ăćЦąĊȎbuffs&&ĄĀĈĒĀǓ丹效ĆĀǓĘĀįċĀɘbufčĀǤćĝӣb.n+' ×'+b.mĈĀˍĆĀǐ、'ąĖˏ]ĮĆіbreath,btBtn,bqBtnĝąѮ吐纳：每 10 分钟一次，āĄɱ0 次。突破失败会āĂŉ；大境界需渡劫。'+(d.btStreak?'  已连败 '+ćĀē+'ĀĄˏ下次成功率 +ĊĀĬ*10)+'%（保底）。ĄĀп]);ćăǇćāыif(d.farm){var ftc=ąĄĉ'farm');if(ftcĈăȅftc)}ĈĀĎarmĄăɇfarmĄăőpath
+if(d.canPath||d.canSubĄĀĉRespec){var list=ąĀğ?d.subs:d.paths;var isSubĆĀġ&&!ĆĀŗ;ĬăʞisSub?'兼修':ćĀƜ?'择道':'转修')ĚāхĄĀļĀąċāąƿ，一次定终身ċĀŇ筑基已成，择一条道走下去ĂĀő需 '+d.respecCost+' Āąɧ修为减半ĒĀūgrid'},lisČĆĪpĖăФitem path'+(m.path===p.id?' on':'')ėăſif(!(await sure('选择「'+pĄāѦ」？')ĊĝДĉĂʰĄĀȌsub':'path',{id:p.idċĆʠĊăѷĎąрąĘѦp.icon+' ąĀžĜąҼp.desc})])}))]))}
 // stats
-ĭĄƱ根骨ēćǡĈċŰćāʛ气血ėĂņhpĎĂǍ灵力ėĀĮmďĀĮ攻击ėĀĮatkĎĀį防御ėĀįdefĎĀį速度ėćɝst.spdĎĀĲ暴đĀƒĈăљst.critąăёĎĂȈ术ĒĂˏăĂɝspellčĀİ属性ċĀİ},[ĄĞˮst.elem||'无ąćǣćĀĶ突破加成ĔćѾċĀƭbėĀƫ劫雷减免ĞĀǭtribĖĀŁ丹毒ĐĀĿ(m.toxĄćӴ/ 100'+(ćĀĔ>70?'　ąĄĕĈĀĭ>4ćĀĘ85':'　尚无妨碍')}),m.pet?ċĀѪ兽ĈĂȵĄĀĝĎĀɂm.pet.elemĄĀŃĄāǪ '+m.pet.lv+' 级'ĈĘǯćĀšĒĈƛmĄĈů+' 点 · 第ĄĂӚves+' 世'ğĈŽ丹毒：服丹积毒，过 40 ąĀǬĀĀč70 ×0.6，满 100 便再不能服丹ĀĆˡ自退 10Āćă清毒丹清 40 点；丹修积毒减ĀĆЭ}Ćąǐworld
-var w=SćĖȟwĮąˌ天象ĜĊҒĂĊŵw.season.n+1)+' 赛季 ·ĂăŒĆĀĘdaysLeft+' 天ĬĆȉĄćҴĆĠɮ'mon_'+w.boss.id,ąĀĉcon,'mon sm'ďāĆ今日 '+w.weather+'，ĆĀłĄĀЀ现ćĀʫĨćҰarenaĄćҮ讨伐ĄěƀĄąмdefLog&&ąĀĉĵĆő被挑战đĀȳlist'},ĆĀŝĔăˠĆĀĶtext:x.n+' 向你论道 — '+(x.w?'你守住了':'你败了Ąąȸ(x.dr>=0?'+':'')+x.drăăЂ}))])ćĉ˫Ąġс// BreakąģĊceremony: success blooms gold ink and floats tĄģƔ gains; failureąĐсa cracked seal.
-var STK=[['hp',āĂƑ],['mp',āĂŮ],['atk',āĂŌ],['def',āĂĩ],['spd',āĂĆ],['power','战力ċđǁąąҎ{ĄďиĎĠĥ)ĆĊĳo={}ČĐҌSTKĉĐҌo[STK[i][0]]ąĢćstĈĀĔ)||0ąćŤoĈćʓgainLines(b0Ąĕĸut=[];if(!bĆē˕out;ěĀƧĚĀƞ{var d=(ĕĀƙ)-(b0ĈĀē||0);if(d>0)out.push(ĄĀĞ1]+'ąčѫd))ĆĔ˵utĉčŔĎĆǆ{đĜәěĜҨććǙ];
-if(r.ĄĀѧąĝŌĊĀȼċăФćĜѼĀĂȳ成功ĆĄǛcolor:#ffe6a8'}))ĘăћĆĊʕr.msg||''}ĄāǶĠāǥćĜѯĊāƲtĦĜѩt})}))ąğқĘāɎrąĉМĀĆʣ'+String.fromCharCode(10)+'ĀĆʾĎĀǮĊĀȥ失败ďĀȥ9e8aıĀȥ}ĘăʟĊĂȗāĄ˘ċĆӃr.pĉĆҼ'}));ċĀōĒćŽĐĄһ4pxĬĝšČćо继续')ĉĝЯ;ĉĀ҄&&!rm())ovĚĎǜąĝБ);
-ĜĀĩġĝѰĆĉҰĄģ˲ďĘƤribulation ĄāŧĄēŒCT=[['tank','硬抗','以肉身承接，伤害 ×0.8（体修更强）'],['parry','招架','耗 10% 灵力ĄĀħ5（法ĆĀħdodge','御剑ăĀħ5ĂĀħ按速度概率完全闪避（剑ĆĀĩartifact','祭ĀęӲ,'ĀąȓăĀŏ3（需装备武器ăĀĦtalisman','避雷符','消耗一张，化去此雷'],['pill','定心丹ăĀĚ枚，回复四成āĂę];
-// 克制 hints are derived fromĆĒҹon table above — no extra server data.ĆĀȰN={},TACTDĉĂĀti=0;ti<TACTąāѤti++){TACTN[TACT[tĄĂċĆĀČ1];TACTDĔĀĞ2]ĄĊȔCOUNTER={'雷':ćĀɣĆĀȚ]ĂĢшćĀʤĆĀɚ],'风ĉĀıparry'],āćѵ:ĆĀȼtank']ĉĉӏcounterTip(kĄĝŐds=ąĀƇ[k]||ĆĀжĄĀœ;var nĐĢǧČĤЈnĄāƳTACTN[ids[i]]||ċĤЗ k+'劫：'+nsĄĆƧ / ')+' 最稳ăĂҽTACTD[ids[0]ĄĝМćĀƽĆĈ˝tıĂš
-ĐĢӮwidth:560,height:220ąĞĿhTitle=ċāй'ĆĀĝpI=đĐǽ100%'}),měĀğ;
-var meterććАđāȊćĐ˺pIĚĐ˒mpI])ĆĞĈtaďĜČmutedąģǗtipďĜĭipąĀĞmsgB=ĐāӽąĀƹinfoċĀƸTitle,meter,stat,tip,msgBąĀƓbtnďđƸĚĆҊĄĎ˧ogĎĀĶlogĆĀƊpanĐĊʹpanel'},[cv,info,btns,įğʑ按钮上的百分比＝这一道雷预计削掉你多少气血（已计入你的气血、法宝、道途与减免），闪避标的是ĀĂǠ。气血越厚扣得越少。最后一道是心魔，靠悟性硬扛ăĎЍogąĀȌtribFrame=0,tribTimer=null,lastStrikećĀďAtĄĀħCalm=false,amp=0,flash=0ĉėįraw(strike,calm){ifĄĀď){ĈĀŜstrike;ĄĀŞćĢˁ}if(calm)ĆĀůąěŵ!strike&&ĈĢˮlastAt<520)strike=ćĀŢ;calm=calm||ąĀŌĭģӴĈĆʫf=ĆĀȵ++ĄĀӧkyĆĢŰLĊęŰĄĒЄ220);skyčĢŧcalm?'#0B0F1A':'#05070d'ĐĀĬ.6ąĀĭ1b2a3c':'#0e1420đĀĭ1ąĀĬ3a3f4a':'#171c28ČĢƋskyčĢƌ56ĄĀƯ
-ąĀʁĆĦɻr=0;r<16;r++ĔģҢ280,96ĉģҥ*0.3927+f*0.00ąĢ҉gěĀȰ-300);rgēĢʘ243,226,179,.16)'ďĀĪ1ĐĀĪĎĢʉrg;ĖģҶ0ĉģқ22,-32ĉĀĒĈĀđfill();ĉģʠvar sunĕĢ҅280,96,4,ĄĀĈ120);sunĔĀǭ55,248,220,.95)'ĐĀī.25ąĀĭĊē˖ēĀĭ1ĐĀīĎĀȜsunĕĀКĉĦƭuffĄģŕr,body,rimčĤƏvar o=[[-1.25,0.05,0.55],[-0.55,-0.4,0.78],[0.2,-0.55,0.85],[0.95,-0.25,0.7],[1.5,0.12,0.5],[0.1,0.15,0.9]ćĂНq=0;q<oąĂЛq++){ĆĀ˞cx+o[q][0]*r+o[q][2]*r,cy+o[q][1]*rąĤƍĉĀĪĊĀĠ,ćĀķ0,6.3)}if(ĄĀǼĉĤǿrimĊĤȯ2.4ČģЉrimċģ˅7ĈĤȨČģ˟}ĉĀʢbodyĈĤМvar rimC=calm?ĐāĪ55)':ďĀ˺'+(0.14+amp*0.3ċħȥ)';
-ċăű7ćąǟcx=((i*112+f*(0.14+(i%3)*0.08))%720)-80,cy=30ĄĀĚ10ćĚɇ(f+i*25)/50)*3;ĈĀь22ĄĀĮĆā˶36404f':'#161a2a',null)}
-ċĢү5ćĢҧkx=((j*150+f*(0.26+(j%2)*0.1))%760)-100,ky=74ĄĀĚ1ĈĚІ(f+j*30)/46ĆĀƝkx,ky,30ĄĀĮ8ąĀƝ262cĄāҔc0e1a',rimC)}
-if(!calm&&ĊĥД<0.0ąĀɱ06ąĥɾĉĤɋ200,190,255,.07)'đāƍ120)}
-ĊĀļ#101720'ėā˚2Ċāˉ0,176ĈĀď60,15ĉĀĠ120,17ĊĀđ80,14ĉĥ˓236,16ĊĀđ80,12ĉĥˡ324ČĀģ38čĀū440,17ĉĀĵ500,15ĊĀđ6čĀƲĆĂƲēĥж;ČĀȠ070a11ĩĀȠ9ĉĀŭ80,184ĉĀȎ60,19ĊĀǼ40,186čĀȎ6ĉĀŖ32čĀģ40čĀŪ4ĎĀū56čĀģĞĀǼĆĂˆvar hgęĂƔ140,2,ąĀĉ44);hġĂʂ55)'ďĀĪĢĂʂhďĂʂarcĆĀƌ44ĎĦĈĊĀˌąāŽa2416':ĆăŊČĦƃĄĀĦĄĢʛ:'ĄĚǱ'ĊāҘ0.8ČāҘĊĀńċā҈calm?12:4ėĀƾ36,5čĀƽċāӘĒĀѾ280,141);g.bezierąĦʉ286,141,290,146,291,151ĉĀѤ94,158đĀĺ8,161,272,161,266ąĀĨąĀĺ69ąĀŌČĀĺ7ĄĀŭ74,141,ĈĀƞĒĀѮĖĂƹ;
-ĈĄĀvar colĄăӽ===āąȲ?'#b388ff':ćĀė火'?'#ff8a50ĉĀĖ风'?'#8fd3ċĀĭ雷'?'#fff3a0':'#e6e3daĎĀЍolČĀ˨coĄĢİjit=26+amp*34,seg=11+amp*5ąĢŐltćġȺbx,by,ty,w,depth){ĉĀяwČĦǓ6+amp*14ĕĀ˸bx,by);var px=bx,py=by;while(py<ty){px+=(ĊĂň-0.5)*jit+(depth===0?(280-px)*0.22:0);py+=segČħӁ12ćĀЀpx,py);if(depth<2ďĂưĄĀǁ0.16)bolt(px,py,py+30ČĀř40,w*0.5,depth+1)}ĈħǺ;
+ĭĄƱ根骨ēćǡĈċŰćāʛ气血ėĂņhpĎĂǍ灵力ėĀĮmďĀĮ攻击ėĀĮatkĎĀį防御ėĀįdefĎĀį速度ėćɝst.spdĎĀĲ暴đĀƒĈăљst.critąăёĎĂȈ术ĒĂˏăĂɝspellčĀİ属性ċĀİ},[ĄĞЄst.elem||'无ąćǣćĀĶ突破加成ĔćѾċĀƭbėĀƫ劫雷减免ĞĀǭtribĖĀŁ丹毒ĐĀĿ(m.toxĄćӴ/ 100'+(ćĀĔ>70?'　ąĄĕĈĀĭ>4ćĀĘ85':'　尚无妨碍')}),m.pet?ċĀѪ兽ĈĂȵĄĀĝĎĀɂm.pet.elemĄĀŃĄāǪ '+m.pet.lv+' 级'ĈĘȯćĀšĒĈƛmĄĈů+' 点 · 第ĄĂӚves+' 世'ğĈŽ丹毒：服丹积毒，过 40 ąĀǬĀĀč70 ×0.6，满 100 便再不能服丹ĀĆˡ自退 10Āćă清毒丹清 40 点；丹修积毒减ĀĆЭ}Ćąǐworld
+var w=SćĖɟwĮąˌ天象ĜĊҒĂĊŵw.season.n+1)+' 赛季 ·ĂăŒĆĀĘdaysLeft+' 天ĬĆȉĄćҴĆĠʄ'mon_'+w.boss.id,ąĀĉcon,'mon sm'ďāĆ今日 '+w.weather+'，ĆĀłĄĀЀ现ćĀʫĨćҰarenaĄćҮ讨伐ĄěǀĄąмdefLog&&ąĀĉĵĆő被挑战đĀȳlist'},ĆĀŝĔăˠĆĀĶtext:x.n+' 向你论道 — '+(x.w?'你守住了':'你败了Ąąȸ(x.dr>=0?'+':'')+x.drăăЂ}))])ćĉ˫Ąġї// BreakąģĠceremony: success blooms gold ink and floats tĄģƪ gains; failureąĐҁa cracked seal.
+var STK=[['hp',āĂƑ],['mp',āĂŮ],['atk',āĂŌ],['def',āĂĩ],['spd',āĂĆ],['power','战力ċđȁąąҎ{ĄďѸĎĠĻ)ĆĊĳo={}ČĐӌSTKĉĐӌo[STK[i][0]]ąĢĝstĈĀĔ)||0ąćŤoĈćʓgainLines(b0ĄĕŸut=[];if(!bĆēЕout;ěĀƧĚĀƞ{var d=(ĕĀƙ)-(b0ĈĀē||0);if(d>0)out.push(ĄĀĞ1]+'ąčѫd))ĆĔеutĉčŔĎĆǆ{đĜӯěĜҾććǙ];
+if(r.ĄĀѧąĝŢĊĀȼċăФćĜҒĀĂȳ成功ĆĄǛcolor:#ffe6a8'}))ĘăћĆĊʕr.msg||''}ĄāǶĠāǥćĜүĊāƲtĦĜҩt})}))ąğұĘāɎrąĉМĀĆʣ'+String.fromCharCode(10)+'ĀĆʾĎĀǮĊĀȥ失败ďĀȥ9e8aıĀȥ}ĘăʟĊĂȗāĄ˘ċĆӃr.pĉĆҼ'}));ċĀōĒćŽĐĄһ4pxĬĝơČćо继续')ĉĝх;ĉĀ҄&&!rm())ovĚĎǜąĝЧ);
+ĜĀĩġĝ҆ĆĉҰĄģЈďĘǤribulation ĄāŧĄēƒCT=[['tank','硬抗','以肉身承接，伤害 ×0.8（体修更强）'],['parry','招架','耗 10% 灵力ĄĀħ5（法ĆĀħdodge','御剑ăĀħ5ĂĀħ按速度概率完全闪避（剑ĆĀĩartifact','祭ĀĚĲ,'ĀąȓăĀŏ3（需装备武器ăĀĦtalisman','避雷符','消耗一张，化去此雷'],['pill','定心丹ăĀĚ枚，回复四成āĂę];
+// 克制 hints are derived fromĆĒӹon table above — no extra server data.ĆĀȰN={},TACTDĉĂĀti=0;ti<TACTąāѤti++){TACTN[TACT[tĄĂċĆĀČ1];TACTDĔĀĞ2]ĄĊȔCOUNTER={'雷':ćĀɣĆĀȚ]ĂĢўćĀʤĆĀɚ],'风ĉĀıparry'],āćѵ:ĆĀȼtank']ĉĉӏcounterTip(kĄĝƐds=ąĀƇ[k]||ĆĀжĄĀœ;var nĐĢǽČĤОnĄāƳTACTN[ids[i]]||ċĤЭ k+'劫：'+nsĄĆƧ / ')+' 最稳ăĂҽTACTD[ids[0]ĄĝќćĀƽĆĈ˝tıĂš
+ĐģĄwidth:560,height:220ąĞſhTitle=ċāй'ĆĀĝpI=đĐǽ100%'}),měĀğ;
+var meterććАđāȊćĐ˺pIĚĐ˒mpI])ĆĞňtaďĜŌmutedąģǭtipďĜŭipąĀĞmsgB=ĐāӽąĀƹinfoċĀƸTitle,meter,stat,tip,msgBąĀƓbtnďđǸĚĆҊĄĎ˧ogĎĀĶlogĆĀƊpanĐĊʹpanel'},[cv,info,btns,Įğʧ'按钮上的百分比＝这一道雷预计削掉你多少气血（已计入你的气血、法宝、道途与减免），闪避标的是ĀĂǠ。气血越厚扣得越少。最后一道是心魔，靠悟性硬扛ăĎЍogąĀȌtribFrame=0,tribTimer=null,lastStrikećĀďAtĄĀħCalm=false,amp=0,flash=0ĉėůraw(strike,calm){ifĄĀď){ĈĀŜstrike;ĄĀŞćĢ˗}if(calm)ĆĀůąěƵ!strike&&ĈĢЄlastAt<520)strike=ćĀŢ;calm=calm||ąĀŌĭĤĊĈĆʫf=ĆĀȵ++ĄĀӧkyĆĢƆLĊęưĄĒф220);skyčĢŽcalm?'#0B0F1A':'#05070d'ĐĀĬ.6ąĀĭ1b2a3c':'#0e1420đĀĭ1ąĀĬ3a3f4a':'#171c28ČĢơskyčĢƢ56ĄĀƯ
+ąĀʁĆĦʑr=0;r<16;r++ĔģҸ280,96ĉģһ*0.3927+f*0.00ąĢҟgěĀȰ-300);rgēĢʮ243,226,179,.16)'ďĀĪ1ĐĀĪĎĢʟrg;Ėģӌ0ĉģұ22,-32ĉĀĒĈĀđfill();ĉģʶvar sunĕĢқ280,96,4,ĄĀĈ120);sunĔĀǭ55,248,220,.95)'ĐĀī.25ąĀĭĊēЖēĀĭ1ĐĀīĎĀȜsunĕĀКĉĦǃuffĄģūr,body,rimčĤƥvar o=[[-1.25,0.05,0.55],[-0.55,-0.4,0.78],[0.2,-0.55,0.85],[0.95,-0.25,0.7],[1.5,0.12,0.5],[0.1,0.15,0.9]ćĂНq=0;q<oąĂЛq++){ĆĀ˞cx+o[q][0]*r+o[q][2]*r,cy+o[q][1]*rąĤƣĉĀĪĊĀĠ,ćĀķ0,6.3)}if(ĄĀǼĉĤȕrimĊĤɅ2.4ČģПrimċģ˛7ĈĤȾČģ˵}ĉĀʢbodyĈĤвvar rimC=calm?ĐāĪ55)':ďĀ˺'+(0.14+amp*0.3ċħȻ)';
+ċăű7ćąǟcx=((i*112+f*(0.14+(i%3)*0.08))%720)-80,cy=30ĄĀĚ10ćĚʇ(f+i*25)/50)*3;ĈĀь22ĄĀĮĆā˶36404f':'#161a2a',null)}
+ċĢӅ5ćĢҽkx=((j*150+f*(0.26+(j%2)*0.1))%760)-100,ky=74ĄĀĚ1ĈĚц(f+j*30)/46ĆĀƝkx,ky,30ĄĀĮ8ąĀƝ262cĄāҔc0e1a',rimC)}
+if(!calm&&ĊĥЪ<0.0ąĀɱ06ąĥʔĉĤɡ200,190,255,.07)'đāƍ120)}
+ĊĀļ#101720'ėā˚2Ċāˉ0,176ĈĀď60,15ĉĀĠ120,17ĊĀđ80,14ĉĥ˩236,16ĊĀđ80,12ĉĥ˷324ČĀģ38čĀū440,17ĉĀĵ500,15ĊĀđ6čĀƲĆĂƲēĥь;ČĀȠ070a11ĩĀȠ9ĉĀŭ80,184ĉĀȎ60,19ĊĀǼ40,186čĀȎ6ĉĀŖ32čĀģ40čĀŪ4ĎĀū56čĀģĞĀǼĆĂˆvar hgęĂƔ140,2,ąĀĉ44);hġĂʂ55)'ďĀĪĢĂʂhďĂʂarcĆĀƌ44ĎĦĞĊĀˌąāŽa2416':ĆăŊČĦƙĄĀĦĄĢ˛:'ĄĚȱ'ĊāҘ0.8ČāҘĊĀńċā҈calm?12:4ėĀƾ36,5čĀƽċāӘĒĀѾ280,141);g.bezierąĦʟ286,141,290,146,291,151ĉĀѤ94,158đĀĺ8,161,272,161,266ąĀĨąĀĺ69ąĀŌČĀĺ7ĄĀŭ74,141,ĈĀƞĒĀѮĖĂƹ;
+ĈĄĀvar colĄăӽ===āąȲ?'#b388ff':ćĀė火'?'#ff8a50ĉĀĖ风'?'#8fd3ċĀĭ雷'?'#fff3a0':'#e6e3daĎĀЍolČĀ˨coĄĢŰjit=26+amp*34,seg=11+amp*5ąĢƐltćġɺbx,by,ty,w,depth){ĉĀяwČĦǩ6+amp*14ĕĀ˸bx,by);var px=bx,py=by;while(py<ty){px+=(ĊĂň-0.5)*jit+(depth===0?(280-px)*0.22:0);py+=segČħӗ12ćĀЀpx,py);if(depth<2ďĂưĄĀǁ0.16)bolt(px,py,py+30ČĀř40,w*0.5,depth+1)}ĈħȐ;
 bolt(280,0,134,2.2+amp*2,0);if(amp>0.55)ĉĀħ20,1.1+amp,1ĎĀћif(ďĄЍ180ĒĂɘ55,ąĀă'+(0.05ąĂʈ7ĎĂӻĕăЁ}
-if(flash>ĠĀŤĈħƱflashĥĀŦ;flash-=0.055ĉĐŗquake(){if(ĉĩŊpanąī˟ĊĆŽquakeąĘҥpanelĊĘҧčĀĶaddĆĀĳĊħѬopTribĄġ҂ąąȯ){clearIntervalĈĀĘ;ċąɓ}}
-ćĀĐsetĆĀıČċиĄĖĘĆĤЈcv)||ĝĥʈ{ćĀƝąďӋdraw()},60ĉĨѩrender(t,done,msg,win){
-if(t){hTitleĊĬĀtĄĢќNameāďƦĄĊʌ(t.i+1)Ąčɵt.n+' 道';meteręĆЀhpIĄęɰwćĨȿround(t.hpĆĈƄ;męĀĨmĈĀĨ
-var b=t.bolts[ĄĀćĄĄǹ-1];staĊĦȘ='来袭：'+b.k+'劫，威能ċĈȎb.ĆĀś  · 法宝 '+t.art+' 次';
-tipĊĀŌĈćǍb.k);tipĚćĀampĖĨǍ.i/ĈĨяt.n-1))*0.7+(bĄĈʤ0.8ĆĈҢĐĀʭ'劫云散去ďĀʆċĈɳďĀȐ';čĀǖĄĀĒĕĥИ
+if(flash>ĠĀŤĈħǇflashĥĀŦ;flash-=0.055ĉĐŗquake(){if(ĉĩŠpanąī˵ĊĆŽquakeąĘӥpanelĊĘӧčĀĶaddĆĀĳĊħ҂opTribĄġӂąąȯ){clearIntervalĈĀĘ;ċąɓ}}
+ćĀĐsetĆĀıČċиĄĖĘĆĤшcv)||ĝĥʞ{ćĀƝąďӋdraw()},60ĉĨѿrender(t,done,msg,win){
+if(t){hTitleĊĬĖtĄĢҜNameāďƦĄĊʌ(t.i+1)Ąčɵt.n+' 道';meteręĆЀhpIĄęʰwćĨɕround(t.hpĆĈƄ;męĀĨmĈĀĨ
+var b=t.bolts[ĄĀćĄĄǹ-1];staĊĦȮ='来袭：'+b.k+'劫，威能ċĈȎb.ĆĀś  · 法宝 '+t.art+' 次';
+tipĊĀŌĈćǍb.k);tipĚćĀampĖĨǣ.i/ĈĨѥt.n-1))*0.7+(bĄĈʤ0.8ĆĈҢĐĀʭ'劫云散去ďĀʆċĈɳďĀȐ';čĀǖĄĀĒĕĥј
 msgBĊĀİĄĈҊąĈʼbtnsĄĊʱone){draw(nullĄđĺ
-if(winĆġĵ{ĄāǓĄĚ˛foĎĚ˺crk'))info.insertBeforeęĉƞ渡劫ĘĉƞĀĉŽ}),msgBąĀɏflash=1;if(!rm()ĄĐňďĆӗąĈѢ;ČĈѠbęħӨbĊđȩbĖđȩbl)},1700)}}
-btnsĜĚѱĖĐЯĈāȒĦĉƀ天地归于平静'ĆĀѢvar FC=t.forecast||{};TACTďěĴaĄĈĐk=t.can[a[0]]!ĄĀˠ&&(a[0]!==ćĈɀ||t.can.ąĀĐ)ĈĀĤĆĈɾąĀĤąĀĐĉĀĤpillĆĀĠpillĄćǘlb=a[1];if(ok){if(a[0]===ĄĈʫ&&FC.dodge!=null)lb+=' 闪 '+ąĀĘ+'%'ĆĢǌąĀĽĆĀƔĄĀİ免伤ďĀģpilląĀğ回四成ćĀĠFCąĀȑĈĀŲ−'+ąĀė+'%'ĜĀ˰ćĕɟokĄĚ˫a[2]įđǅep',{act:a[0]đĒļrĆĥȇraw(Ėāћ.k);ąāƸvar fin=!čĖİhomeĐđȦ;var TLĎĖştribLog)||r.log;if(fin&&TL&&TLĆĢДvar L=TL[ĆĀē-1];logěāȝAĆČɢ'+(LĄĂǃ道'+L.Ąĉĕ(L.noteĄđǮ，伤 '+L.d}),logĉĭʙ}ĝĀŪĆĊƷąāˣ?'B':'A'+(fin?' bigĈĤЍr.msgďĀŦĐĤɊĔĀɏĄĂ˙čĀė,ĉĥƽĄĀģĆā҇,r.msg,ĆĀƪąāƭ)}},lb))});Ģāʂdanger'ĨĎБ临劫而逃，天劫会追着你劈三天。确定ĉĎДčĀҰflee');ıāː逃'))}}ĔĨʁpanel);draw();ĆăĚĄĀȂĎĘџattle replayĉăőplay(bąĨĉif(!bėħҳĳċҕah=b.me.hp,bh=b.foe.hp;ĄĚʋAĚĉЅbarBĚĉІĜĉǠąĆӻvar tďĉҎb.meąčǭ 对  '+b.foeĆĖʾvar meKey='seal_'+(b.me.r!=null?b.me.r:(S.me?S.me.r:ąĜȟfoeKeyĄĀǯid?ĄčʥąĀď:(b.foćĀŊąĀŠĄĀĕ:nullĉă˼fighter(name,key,fb,bar,sideĖďЉĄĀĴ '+sideĐĊĞpfċčъĄĀŘ'pfĒĖĲfąďʛĔďʎćĊŭbar])]Ąć˚fA=ąĀƾĆĀɱ,meKey,ćĀďbarA,'L'),fBĈĀĮąĀʎ,foĄĀİfoe.icon||ĈĀĝbarB,'RĄĀѲturnĎĀВvsąāп对ĆĉӻskipĊĒʝtitle:'胜负在出手那一刻就已判定，跳过只是略过演示ĒĂҩi=b.lĆčӉ;finish()}},'跳āĀĳċĀ˃nish(ĄĄɶ(log);b.logďĂҐe){logĊāǱline(e)ĆĘҾast=b.log[ĉĀƁ-1];barAĊĄƀpct(last.ah,ah)+'%';barBēĀĤbh,bĄĀĤturnĊăЪb.win?'胜':'败ĄĀĞćİʔ'vs '+(ĄĀģwin':'lose');ĄĀĔfB:fA)čā˿down');clear(ctl)ĵăȶĘāњĎĨѵ},ĊĀǋĊĩФĄĀɪ{var who=(e.s==='胜'||ĄĀĊ败')?ĆĀҼ:e.w==='A'ďĀēB'?ćĀҧ:ĄĮĹt=(e.t?'['+e.t+']ĄĩǗwho+(e.sĄĒ҃e.s:'')+(e.d?'  -'+fmt(e.d)ąĀėc?' ĀĐƐąĀĎe?'  '+e.e:''ĕĖСe.w+(e.cĆĀǌĊĀǗĎĂ˞tĊħɆhitĄħѹ!e.ĊĬœatk=ćĀȈfA:fB,tgtĉĀēB:fA;atkĐĂĳatkąą˧atkĊą˥ċĀİaddąĀĭif(e.d){tgēğƔtąĀőtgtĊĀőċĀİĄĀЩtĄāȽdnďğƘdmg'ąĀɮcritĈĀȞ'ĈĀʕ});tgċğŧdnĘĄɘdnĉĄɘĊĀčĊĄɘdn)},900)}if(e.t)ĎāƘąĥљ.tąĬŅtlĥċЭ8px'},[skipďėУtipąāзąāЕ已由ĀěǲĈāИ，不影响结果ăĐŮĪīȱ'},[titleĎĂŉarena'},[fA,turn,fB]),log,ctl]ĆĝʄmĘĆƍi>ĊāҚĎĆǬm)ĆāҭĉĂӠeĄāєi++ĐăғĄāșĎă˪hit(e)ēāѹeĞāѶeĈāѳ},420ďăǁĄė˺ĄĖɢĄĀčĠĖɥregionsĝĖɨĄĖɑxploreĄĖɳ,null,'ex'ĊĲ˰subnav(items,cur,pickĖĂ҂row'},itemČēʋĊĠҚČāӠcur===t[0]?'pri sm'ĖĐɳpick(tĄĠƏt[1])})ĐęӽĄĀǙd,result,suĄıȢĄęӿsub=sub||'ex';čĖЧĆĘʅ,ĆēȍćĀĒĄĀȐ[['exăġɬ],['dg',Āėӣ']],sub,ĉĐʇif(x==='dg')dgLoad(ĄĄǤĊĀ˝()})];
-if(subąĀįĄĖӻDungeon(kids,dĊĜǊĄĨҀćďąresĄē˟ąĀěąĐҏevenĉĀĩevenąėăevent)ąĖČĭĐҡĀĀȄěđȦ体力 ďĞǺĄĕť '+m.daily.exp+'/'+(d.daily||20Ğěį每次āĘП 1 ĊĘТ攒到ĂđЦ就不再涨）。一趟最多走 10 步，回头再来或服辟谷丹便可跑满今日ĒĚǜgriĖĘӓ},d.ĄāťċĀӡrěēʡrg'+(r.open?'':' lock')},[imgąāƸ_'+r.id,'rgimgĐĔѥąăґrćēȭrġēȭrĄēȭĔĚǅ-top:6px'},[ĄĀƣēăƇ sm',ĆąӜm.st<1ĨěȲĆĢʣ{region:rĆēЭċěɁąāǀx.data)}},'前往'):đğȅąĀЇ需'+RN[r.realm]})]ĆēЛčđʭćıцĆāāėĄɕĒĀӱe.enc?'遭遇':'奇遇'}),e.encĎĜʴencpđĒƽe.enc.id,ĄĀĈąĒƻĉĀ˲ĘĔĬe.encěĀ˷ćĒӲe.encĄĒӲe.enc.desc||''])])ĕīǘĆĐʻe.textěĀк8px'},e.optČāĕoĄĊӎid=o.hidden&&!o.ok;ĖĂď'opt'+(ćĀįo.ok?' hiĄĪҔĈĆѝ.ĆĆџhid?āĪƆ才看得见的门路ĊĢǎğĀҙchoose',{opt:o.idđĂȿxĈĘҨxĉĩŉĄĩ˷x.msgĊĨҕ}var res=xĄĜҒesult;if(res&&res.battle){ĄąҝćĀĒćĂńĆęĂĊāĕ,res)})}ĈĆȯđĀĠ},hid?['？？？'ďăǯreąĬďĂĪ˂})]:[o.label,o.req?ĘĀĲo.reqĆĖĸ})čĜʈćĂƈ){var partsĄĒǁr.lines&&ĄĀĈąăƷpartĔĂŻreąąǓąĀĳjoin('\n')}Ąą҇gĆĀŞxp)g.push(ăĠġ(r.xp>ćĒӒfmt(r.xp)ĄĆҹlsĆĀįĀěǡ'+(r.lsĎĀįlsąĀįwuĆĀįĀĚɃ'+(r.wuĈĀįr.wu);ĉĒđĘĀǚĉāҫgąĐǬ· ')Ąğ˪r.drops&&ĄĀĈġĀȭow drops'},ąĀĵĊāƚdėĤĭdrop'+(d.lost?' lostąěҁĉĮȤd.id,'ico sm'),d.name+(dĆĮǇd.n:'')+(d.q?'（'+d.q+'星ĂīŌ)ćĀŠ（遗失ăĀĒ])})ąĀǱĄāĘċĀǢĩę˻ąāőąĀŉĂĜƾ看战斗'ąĄŐgĄĞĴrops||[])ĎĘлćēц!x.lost&&(x.nċĵОx.n>0ĄĜʕgoąįļ)ēĄІĄįƑgot)},80)Ćĥɑģăũ经过ĉđӪpartsĐđӪ秘境čĠŞąăɸďĄĲdgĸĄĭdgĊĊѹdgPĈĀȲĉĒʺxĆĒʸ}ďĀƚGo(iĐāғdg.pick',{i:ińāҏ
-ifĄāНčāѸĊĀĕĉāѻdgAfterĆĂҋćĊҷČĀĘĉĀȇAfter(ĄĪѥb=d.bank;ĆĀѴb&&b.drops?ĄĀć:đĀѾzćĀѾz.lost}ĄēɤćĀѥĈĀѐėĂİdĉĀʮĆĀƿĘĀģďĀʣUse(ąįŖČĀп.use',{id:ēĂȶċěǟďĀʦvďĀʦĈĀĘ)ĪĀѿLoot(l){modal(l.ĈİǍ?ĄĀčėĘЈame+(x.n>1?' ×'+xąāʽxĄāʽxĈāʽĆĘȼ\n')+(l.n>ċĀŮ'\n…共 '+l.n+' 样':'')āĜЇ里还什么都没捞着。ČĀƺBankCardĈĘʷĢāȓbĄĝʝ秘境通关':b.dead?'力竭而返':'收手而归ĜĄʛ深入 '+b.depth+' 层'+(ąĀń · 所得折半ąęƄĚĄʆĀĂɤĄĔ˺b.xpăęтāĝЪąĀēls)}),
+if(winĆġŵ{ĄāǓĄĚЛfoĎĚкcrk'))info.insertBeforeęĉƞ渡劫ĘĉƞĀĉŽ}),msgBąĀɏflash=1;if(!rm()ĄĐňďĆӗąĈѢ;ČĈѠbęħӾbĊđȩbĖđȩbl)},1700)}}
+btnsĜĚұĖĐЯĈāȒĦĉƀ天地归于平静'ĆĀѢvar FC=t.forecast||{};TACTďěŴaĄĈĐk=t.can[a[0]]!ĄĀˠ&&(a[0]!==ćĈɀ||t.can.ąĀĐ)ĈĀĤĆĈɾąĀĤąĀĐĉĀĤpillĆĀĠpillĄćǘlb=a[1];if(ok){if(a[0]===ĄĈʫ&&FC.dodge!=null)lb+=' 闪 '+ąĀĘ+'%'ĆĢȌąĀĽĆĀƔĄĀİ免伤ďĀģpilląĀğ回四成ćĀĠFCąĀȑĈĀŲ−'+ąĀė+'%'ĜĀ˰ćĕɟokĄĚЫa[2]įđǅep',{act:a[0]đĒļrĆĥɇraw(Ėāћ.k);ąāƸvar fin=!čĖİhomeĐđȦ;var TLĎĖştribLog)||r.log;if(fin&&TL&&TLĆĢєvar L=TL[ĆĀē-1];logěāȝAĆČɢ'+(LĄĂǃ道'+L.Ąĉĕ(LĆħЕ)+'，伤 '+L.d}),logĉĭʯ}ĝĀŪĆĊƷąāˣ?'B':'A'+(fin?' bigĈęБr.msgďĀŦĐĤʊĔĀɏĄĂ˙čĀė,ĉĥǽĄĀģĆā҇,r.msg,ĆĀƪąāƭ)}},lb))});Ģāʂdanger'ĨĎБ临劫而逃，天劫会追着你劈三天。确定ĉĎДčĀҰflee');ıāː逃'))}}ĔĨʗpanel);draw();ĆăĚĄĀȂĎĘџattle replayĉăőplay(bąĨŉif(!bėħӳĳċҕah=b.me.hp,bh=b.foe.hp;ĄĚˋAĚĉЅbarBĚĉІĜĉǠąĆӻvar tďĉҎb.meąčǭ 对  '+b.foeĆĖʾvar meKey='seal_'+(b.me.r!=null?b.me.r:(S.me?S.me.r:ąĜɟfoeKeyĄĀǯid?ĄčʥąĀď:(b.foćĀŊąĀŠĄĀĕ:nullĉă˼fighter(name,key,fb,bar,sideĖďЉĄĀĴ '+sideĐĊĞpfċčъĄĀŘ'pfĒĖĲfąďʛĔďʎćĊŭbar])]Ąć˚fA=ąĀƾĆĀɱ,meKey,ćĀďbarA,'L'),fBĈĀĮąĀʎ,foĄĀİfoe.icon||ĈĀĝbarB,'RĄĀѲturnĎĀВvsąāп对ĆĉӻskipĊĒʝtitle:'胜负在出手那一刻就已判定，跳过只是略过演示ĒĂҩi=b.lĆčӉ;finish()}},'跳āĀĳċĀ˃nish(ĄĄɶ(log);b.logďĂҐe){logĊāǱline(e)ĆĘҾast=b.log[ĉĀƁ-1];barAĊĄƀpct(last.ah,ah)+'%';barBēĀĤbh,bĄĀĤturnĊăЪb.win?'胜':'败ĄĀĞćİʪ'vs '+(ĄĀģwin':'lose');ĄĀĔfB:fA)čā˿down');clear(ctl)ĵăȶĘāњĎĨҵ},ĊĀǋĊĩѤĄĀɪ{var who=(e.s==='胜'||ĄĀĊ败')?ĆĀҼ:e.w==='A'ďĀēB'?ćĀҧ:ĄĮŏt=(e.t?'['+e.t+']Ąĩȗwho+(e.sĄĒ҃e.s:'')+(e.d?'  -'+fmt(e.d)ąĀėc?' ĀĐƐąĀĎe?'  '+e.e:''ĕĖСe.w+(e.cĆĀǌĊĀǗĎĂ˞tĊħʆhitĄħҹ!e.ĊĬũatk=ćĀȈfA:fB,tgtĉĀēB:fA;atkĐĂĳatkąą˧atkĊą˥ċĀİaddąĀĭif(e.d){tgēğǔtąĀőtgtĊĀőċĀİĄĀЩtĄāȽdnďğǘdmg'ąĀɮcritĈĀȞ'ĈĀʕ});tgċğƧdnĘĄɘdnĉĄɘĊĀčĊĄɘdn)},900)}if(e.t)ĎāƘąĥҙ.tąĬśtlĥċЭ8px'},[skipďėУtipąāзąāЕ已由ĀěǲĈāИ，不影响结果ăĐŮĪīɇ'},[titleĎĂŉarena'},[fA,turn,fB]),log,ctl]Ćĝ˄mĘĆƍi>ĊāҚĎĆǬm)ĆāҭĉĂӠeĄāєi++ĐăғĄāșĎă˪hit(e)ēāѹeĞāѶeĈāѳ},420ďăǁĄė˺ĄĖɢĄĀčĠĖɥregionsĝĖɨĄĖɑxploreĄĖɳ,null,'ex'ĊĲІsubnav(items,cur,pickĖĂ҂row'},itemČēʋĊĠӚČāӠcur===t[0]?'pri sm'ĖĐɳpick(tĄĠǏt[1])})ĐęӽĄĀǙd,result,suĄıȸĄęӿsub=sub||'ex';čĖЧĆĘʅ,ĆēȍćĀĒĄĀȐ[['exăġʬ],['dg',Āėӣ']],sub,ĉĐʇif(x==='dg')dgLoad(ĄĄǤĊĀ˝()})];
+if(subąĀįĄĖӻDungeon(kids,dĊĜǊĄĨӀćďąresĄē˟ąĀěąĐҏevenĉĀĩevenąėăevent)ąĖČĭĐҡĀĀȄěđȦ体力 ďĞǺĄĕť '+m.daily.exp+'/'+(d.daily||20Ğěį每次āĘП 1 ĊĘТ攒到ĂđЦ就不再涨）。一趟最多走 10 步，回头再来或服辟谷丹便可跑满今日ĒĚǜgriĖĘӓ},d.ĄāťċĀӡrěēʡrg'+(r.open?'':' lock')},[imgąāƸ_'+r.id,'rgimgĐĔѥąăґrćēȭrġēȭrĄēȭĔĚǅ-top:6px'},[ĄĀƣēăƇ sm',ĆąӜm.st<1ĨěȲĆĢˣ{region:rĆēЭċěɁąāǀx.data)}},'前往'):đğɅąĀЇ需'+RN[r.realm]})]ĆēЛčđʭćıќĆāāėĄɕĒĀӱe.enc?'遭遇':'奇遇'}),e.encĎĜʴencpđĒƽe.enc.id,ĄĀĈąĒƻĉĀ˲ĘĔĬe.encěĀ˷ćĒӲe.encĄĒӲe.enc.desc||''])])ĕīȘĆĐʻe.textěĀк8px'},e.optČāĕoĄĊӎid=o.hidden&&!o.ok;ĖĂď'opt'+(ćĀįo.ok?' hiĄĪӔĈĆѝ.ĆĆџhid?āĪǆ才看得见的门路ĊĢȎğĀҙchoose',{opt:o.idđĂȿxĈĘҨxĉĩƉĄĩзx.msgĊĨӕ}var res=xĄĜҒesult;if(res&&res.battle){ĄąҝćĀĒćĂńĆęĂĊāĕ,res)})}ĈĆȯđĀĠ},hid?['？？？'ďăǯreąĬŏĂĪЂ})]:[o.label,o.req?ĘĀĲo.reqĆĖĸ})čĜʈćĂƈ){var partsĄĒǁr.lines&&ĄĀĈąăƷpartĔĂŻreąąǓąĀĳjoin('\n')}Ąą҇gĆĀŞxp)g.push(ăĠġ(r.xp>ćĒӒfmt(r.xp)ĄĆҹlsĆĀįĀěǡ'+(r.lsĎĀįlsąĀįwuĆĀįĀĚɃ'+(r.wuĈĀįr.wu);ĉĒđĘĀǚĉāҫgąĐǬ· ')Ąğ˪r.drops&&ĄĀĈġĀȭow drops'},ąĀĵĊāƚdėĤŭdrop'+(d.lost?' lostąěҁĉĮɤd.id,'ico sm'),d.name+(dĆĮȇd.n:'')+(d.q?'（'+d.q+'星Ăīƌ)ćĀŠ（遗失ăĀĒ])})ąĀǱĄāĘċĀǢĩę˻ąāőąĀŉĂĜƾ看战斗'ąĄŐgĄĞĴrops||[])ĎĘлćēц!x.lost&&(x.nċĵдx.n>0ĄĜʕgoąįż)ēĄІĄįǑgot)},80)Ćĥʑģăũ经过ĉđӪpartsĐđӪ秘境čĠŞąăɸďĄĲdgĸĄĭdgĊĊѹdgPĈĀȲĉĒʺxĆĒʸ}ďĀƚGo(iĐāғdg.pick',{i:ińāҏ
+ifĄāНčāѸĊĀĕĉāѻdgAfterĆĂҋćĊҷČĀĘĉĀȇAfter(ĄĪҥb=d.bank;ĆĀѴb&&b.drops?ĄĀć:đĀѾzćĀѾz.lost}ĄēɤćĀѥĈĀѐėĂİdĉĀʮĆĀƿĘĀģďĀʣUse(ąįƖČĀп.use',{id:ēĂȶċěǟďĀʦvďĀʦĈĀĘ)ĪĀѿLoot(l){modal(l.Ĉİȍ?ĄĀčėĘЈame+(x.n>1?' ×'+xąāʽxĄāʽxĈāʽĆĘȼ\n')+(l.n>ċĀŮ'\n…共 '+l.n+' 样':'')āĜЇ里还什么都没捞着。ČĀƺBankCardĈĘʷĢāȓbĄĝʝ秘境通关':b.dead?'力竭而返':'收手而归ĜĄʛ深入 '+b.depth+' 层'+(ąĀń · 所得折半ąęƄĚĄʆĀĂɤĄĔ˺b.xpăęтāĝЪąĀēls)}),
 bĊĂǀ?ęĂƵbđĂƵxĞĂƵxĝĂƵxċĂƵČĀ˸ĝĀ˷ćĀŠ（行囊已满ĈĂƷ:null,
-bąĂәbĊĂә?ėĂӎbĐĂӎąăŔĉĀСOpt(oċĔХĐăк dgoĒĂȏĄāѨ}},[o.id?imgąĄƏoąĀȒ'ćĄĎċĀɜoiĆăǴi||'·ĦĞɡo.nęĄƤo.elem?ĄĄƫo.elemĄĀƃo.dćĄƥĎąӣČąГĄĕǷd&&d.dg;var ĉęǍdg');if(ĊęǊtcĆĶĬĉĄРĉĂīd.bankĈĀĳĈāƧĄĀěĄĂьrun=g.run;
-if(!run){ĭąчĀĆŀĝĢā余 '+g.left+'/'+g.limiăČ˲ĘĲɄĄąЩ层给你两三条路，自己挑。所得先寄在Āāʍ，收手或通关才入行囊；死在里面折损āĞŸĞĀŊ入口要气血过半，手上没有未了的事āĒҿ层是秘境之主ēĀļĚćʋg.difėĚʢďĀӦx.ok&&g.left>0ČĆеćĄНx.ok||g.leftĞĠӛčĂǔenter',{diff:x.ņĂǚĝĂǍ}ąāʐăĈДx.n+' 层 · 掉落×'+x.lm)})),
-g.best?ĦğƐ6ćğƐ本周最深 '+g.best.dĂāӴĆāɱčĕђĠĀҶāĀŏĘėʡg.boarąħҡ?ąĀĎĝėʯĈĀй+ąĹǎx.uid)==ąĈȀS.me.uid)?' meĖĠĤrankċĥ˥x.ranąęɏĖĞɺxąāʻČĥȌćĥǢ第 '+xĆĀɂ])ďĸʵċāķ本周还没有人下去过。'đĆƛĆāɺĢĀʂĊĀėdghčāѺrun.diff+' ĂĎȊrun.f+'/'+runăĀїğħɖ❤ '+dgP(runĄĥȮ  ✦ĈĀēĆĥǺĜĀŇ💎ĄĥŀrunąĥЏĆĥƺrun.xp)})]),
-run.relĚĂТgr'},ąĀĨĥĂРtagąħɹx.n+'：'+x.dĈĀ˪ćĂ˄Ĕı˧ĬĄҁĄăʏrun.loot)}},'ĀğӡĄĀʊlootĄăț),run.sēĦɛąĀɁ守护已碎ćāƧ,
-run.laćăɰĘąЯąĀĩĐĂѡĆĳуdy=[];var p=run.pend;
-if(p&&p.t==='ev'){bodyĜėǯpĄĆг);p.oďĊӮo,iČĀņđĆЁěĂӂo.l))}ĈķѪćĀƥshopĚĀƧĊĀҗ行商靠在石壁上，货只卖一件Ăāƕ;p.gĴĀƴ dgoĈĂƁrun.ls<o.lsĜăƐėăů'🛒łăūąăƽdąę˥ĕā˓o.lsĂěҦĄġƑ);ĚĀǵĖĀӺGo(-1)}},'不买了ĆĎʨċĀʪrelicħĀʫ石台上浮着三样，只能取一ąĀʪrĺĀʪĶĀʕ✨ŏĀʔńĀɬ取ćďĔrun.ąıɯĚĀȢćĄś)})ĤĂŽćĂЀp?'眼前':'Āġ˕路ĉĆƞbody)ĦĂѐĤāѯċăǢrun.pillOkēĀȗUse('p_huixuĄčѨ服回血丹'ĖĚ˧ıĀŚlingąĀś灵丹'),
-ēğėįĎż收手离开？所得ĀĢĒ这次秘境ăģҍċĜҒčăʶleavģġŨĢăʭąĆǉvćĉƈ收手ĆĚӦċĉŖĎĎƅgĄĊҿbagĠĊһbaĤĆ҉Bagąăз'itemsċĊұćĀĤdćĊ˷inv=d.inv,sk=d.skillsčĤБtabēėɳ},[[ĄĀŪ,'物品ąĘҸs',āĲҦ],['skills',Āğƾ神通'],['craft','炼制'],['pet',āĜƣ]]ħċęsuběċęđĀсtĄďӟcraft'ĒĥƸcipeĔċȤx)ćĀȿObject.assign({},d,ĄĆӫ,ąĀŝĆĽˀąĀŵpeąĀųyĉĀųpeĔħʹyěĀůyąĀůpeĆĀŭĉĀˠčċȊćĂӌĉċŊĄĀХ{var groups={};ćĵӮĎāОit){(groups[it.k]=ĉĀČ||[]).push(itąāҳĉĘǟĄĀǈkeysĄĀŅĖĠѤČĉӮh4ąāєKINDN[k]||kėĞȨĄĀƕkČĀѓiĄĘӲfx=it.fxĆěʮusable=it.kĆĐЂ||ąĀĎegg'||(ąĀĎmisc'&&(fx.array||fxąĳĘĄĉŭoTo=fx.seed?['去播种',ēĥұ]:fx.rune?['去淬炼'ďćʫBag(d,'arts')}]:null;ęċő'+tcl(it.t)+(A[ĊķƸ]?' icąĄЏrimEĄĀĩ,ĎķǣđċŤ},[ąĭœĄĀĵĆĝȧĄķƜĜĝǔitĎċŰěąЈĄċżusĥġŖğĊǒććҕtĔċťĝāǣąāќ},'使用ąĆЙgoToġĀƠgoTo[1]},goTo[0ĉĝѐĘĂӔĒĀǖnĄĀǖask('卖出给坊市（折半价，立刻到手）　单价ąēĖfloor(it.v*0.5)Ăă˃　数量ćĹҟt.n)ĄĶӖąĶӄĄĂšnĉĂɒĊĀɅsellĈĀɆ,n:ĆľˋļĀɒ卖出'),m.r>=1ĨĥȥauctionForm(ćĀƕmax:it.n,nameąĸŲ})}},'上拍ĆĥɄąĊʣĞĥǎĄĄș囊 '+čķГ+'/'+inv.cap.stack+' 种　·　卖出＝ĀĀʔ卖ĀĀʜĂĀʘ；上拍＝挂ĀĹƚ 24ĀġȞ，价高者得（手续费 5%）ąĥǩĆļȤub===Ąāǹ{čāыěĀƣ已装备：'+['w','a','r']ĎĦţĄĸѻĆķѿčĉťaĆāҌa.iid===inv.eq[s]})[0Ćľ˂SLOTN[s]+' '+(it?ĄĀɧ:'—ĈĈЎĄĊʶĬČєĆĀƜĊĀƼaěČѓ'+tcl(a.t)+(a.equippeĈĠǷĉāЖaĔāЕačāДaėāГĘĮѕa.ąĮїSLOTN[a.slot]}),aĆğšĒīаrĆĐʧ★āĀĀ'ĆĤȦa.qęħƺćČǟaĄČǛĉĂɴa.st||{ėģǛ(STĄĂɜ)+' +'+(a.st[k]<1ĊĿˡ.st[k]ĆĔ˃:ĄĀĐĈĀˮ')+(a.q>1?'　★'+a.q+' 品质 ċğѷ((a.qm||1)-1ćĜӀ:'')]),a.af&&a.afĕąӊĉĀӳa.afċĀǖfĆĀǖf.nĄĀǎf.vċĀǊf.vćĀŷf.vđġӽ,a.rn&&a.rnġĀƉ'符纹：'+a.rnĕĀƏSTN[f.st]ĺĀƕīĂɃĈāĉıĂŬċĂɃnequip',{slot:a.slotıāӷĄĂӖ},'卸下'):łĂˠąĀƚiid:a.iĳĂˣćĀƘ装备'Ğğ˽ğĄұ把「'+aąġп折半ĂĂď得 '+sellV(aăĂʕ？想卖高价请改用「上拍」čĄӐĎĂɽArtŇĀǤĂĂɴħĂɭrefineOpen(a.iid,d)}},'Āăˀ),!ćĀѨ&&ļĂˇąĀǜ,name:aĘĂʾěĊʄ法宝匣ĄĂʳĈĺũĊĂʲarts+'įĂʯĎĂʮĄĄӱĄğФel=sk.eqArtąĦǩďĄȖċĄǠĀąĪ（被动ĀĢЭ修炼）Ėďƅ},sk.gongfaċāɣgĚĂȚ'+(gĒĂȐg.locked?ĄďƀĞĢОąĀİ||ćĀŐĖĀҮgongfa',{id:gĴăѴąĀɗęĢЬ'《'+gęĤЋgĎĤЈĚĂɂgĄĂɂĂĥӁ'+g.rate+'ĂĝѤg.descĈĀѽĈĀˁ神通（出战 1-3 个，点击切换ĜĀˇĒĂӠvar on=sel.indexOf(a.id)>Ąēӈđľƻtem'+(onĉĀ˙aĭĀ˙ąĀİĉĀˍiďĀƇ;if(i>=0){if(sĆĈҖ<ĆĳД;sel.splice(i,1)}elseċĀĬ>=3Ćĸț最多三个ċĸˣ}sel.push(a.id)}ĎĀіarts',{ids:selŏĀєďăŋaĈĄӮa.mult+' 耗'+a.mpĜĄӺaĆģʘĈĨĹ)đāɁĉĆƠrc=d.ĄĆƘ||{pills:[],forge:[]}ćĻȆrlist(list,tiĄčǁturn ċāɞąĽɗĦĤŢrĝāɑr.caĊĐʼĉăџr.outċăѠĉăѕr.outęĐˏname+(rćČѼrĄČƄ' ċėӶrćėӶĝĩӠr.iČăƙćČĻićĢӸi.have+'/'+i.nĉăƀĄĊ҃rĈĈБĦĐѦĕĂӟĈćѠ.canĕĊҩĨďҺraft',{idĈĐюćĎěvar nd=ėāĝ;if(xĆġȿĄčю[{id:r.out,nameĄĀʠ,n:r.n,t:Ąļѩnd,r.out)}]ēĆǐndććĩĊĖǙčĀĜ},'开炉ĄČч]}čĂȸrlist(rc.pills,'炼丹（丹修 +25% ĀĞф，丹ĀģǾ）'ĆąǕĆĀĭforge,'炼器 / 制符（器ćĀĲ与品质）')ĐąƄpetąąƃpetBody(d)}ČĭЦbagĦĭУĀĳѻīģǯĈČǭ随身之物'ĜċƀčİɣĄĉʶ,tabs,bodyČČмenergyForm(eąČжİĠęn=čĽĨąĆőĄĬЕ'1',min:1,max:ĉńɾmax(1ćęŎe.left,e.balance))ĆľƓĉğӭąĊѭerrąĖǪouďğҵnumēğʠ}ĉĕʚcalc(ęŁʱąĆǣĄļȥ||0,ďĀƧ;ouČęƝ换ĀīɄ ąĀʑk*e.rate)}
-n.oninput=calc;calcąķȇobĕĩĵ},'供奉');
-obĆļяđĂˇob.ąāɓąāǳerčęȢvar k=ďĀǖ;
+bąĂәbĊĂә?ėĂӎbĐĂӎąăŔĉĀСOpt(oċĔХĐăк dgoĒĂȏĄāѨ}},[o.id?imgąĄƏoąĀȒ'ćĄĎċĀɜoiĆăǴi||'·ĦĞɡo.nęĄƤo.elem?ĄĄƫo.elemĄĀƃo.dćĄƥĎąӣČąГĄĕǷd&&d.dg;var ĉęǍdg');if(ĊęǊtcĆĶłĉĄРĉĂīd.bankĈĀĳĈāƧĄĀěĄĂьrun=g.run;
+if(!run){ĭąчĀĆŀĝĢā余 '+g.left+'/'+g.limiăČ˲ĘĲɚĄąЩ层给你两三条路，自己挑。所得先寄在Āāʍ，收手或通关才入行囊；死在里面折损āĞŸĞĀŊ入口要气血过半，手上没有未了的事āĒҿ层是秘境之主ēĀļĚćʋg.difėĚʢďĀӦx.ok&&g.left>0ČĆеćĄНx.ok||g.leftĞĠӛčĂǔenter',{diff:x.ņĂǚĝĂǍ}ąāʐăĈДx.n+' 层 · 掉落×'+x.lm)})),
+g.best?ĦğƐ6ćğƐ本周最深 '+g.best.dĂāӴĆāɱčĕђĠĀҶāĀŏĘėʡg.boarąħӡ?ąĀĎĝėʯĈĀй+ąĹǤx.uid)==ąĈȀS.me.uid)?' meĖĠĤrankċĥХx.ranąęɏĖĞɺxąāʻČĥȴćĥǢ第 '+xĆĀɂ])ďĸˋċāķ本周还没有人下去过。'đĆƛĆāɺĢĀʂĊĀėdghčāѺrun.diff+' ĂĎȊrun.f+'/'+runăĀїğħʖ❤ '+dgP(runĄĥȮ  ✦ĈĀēĆĥǺĜĀŇ💎ĄĥŀrunąĥЏĆĥƺrun.xp)})]),
+run.relĚĂТgr'},ąĀĨĥĂРtagąħʹx.n+'：'+x.dĈĀ˪ćĂ˄ĔıЧĬĄҁĄăʏrun.loot)}},'ĀğӡĄĀʊlootĄăț),run.sēĦʛąĀɁ守护已碎ćāƧ,
+run.laćăɰĘąЯąĀĩĐĂѡĆĳ҃dy=[];var p=run.pend;
+if(p&&p.t==='ev'){bodyĜėǯpĄĆг);p.oďĊӮo,iČĀņđĆЁěĂӂo.l))}ĈķҀćĀƥshopĚĀƧĊĀҗ行商靠在石壁上，货只卖一件Ăāƕ;p.gĴĀƴ dgoĈĂƁrun.ls<o.lsĜăƐėăů'🛒łăūąăƽd}ĒĦһćā˓o.lsĂěҦĄġƑ);ĚĀǵĖĀӺGo(-1)}},'不买了ĆĎʨċĀʪrelicħĀʫ石台上浮着三样，只能取一ąĀʪrĺĀʪĶĀʕ✨ŏĀʔńĀɬ取ćďĔrun.ąıʯĚĀȢćĄś)})ĤĂŽćĂЀp?'眼前':'Āġ˕路ĉĆƞbody)ĦĂѐĤāѯċăǢrun.pillOkēĀȗUse('p_huixuĄčѨ服回血丹'ĖĚ˧ıĀŚlingąĀś灵丹'),
+ēğėįĎż收手离开？所得ĀĢĒ这次秘境ăģҍċĜҒčăʶleavģġŨĢăʭąĆǉvćĉƈ收手ĆĚӦċĉŖĎĎƅgĄĊҿbagĠĊһbaĤĆ҉Bagąăз'itemsċĊұćĀĤdćĊ˷inv=d.inv,sk=d.skillsčĤБtabēėɳ},[[ĄĀŪ,'物品ąĘҸs',āĲӦ],['skills',Āğƾ神通'],['craft','炼制'],['pet',āĜƣ]]ħċęsuběċęđĀсtĄďӟcraft'ĒĥƸcipeĔċȤx)ćĀȿObject.assign({},d,ĄĆӫ,ąĀŝĆĽ˖ąĀŵpeąĀųyĉĀųpeĔħʹyěĀůyąĀůpeĆĀŭĉĀˠčċȊćĂӌĉċŊĄĀХ{var groups={};ćĶĮĎāОit){(groups[it.k]=ĉĀČ||[]).push(itąāҳĉĘǟĄĀǈkeysĄĀŅĖĠѤČĉӮh4ąāєKINDN[k]||kėĞȨĄĀƕkČĀѓiĄĘӲfx=it.fxĆěʮusable=it.kĆĐЂ||ąĀĎegg'||(ąĀĎmisc'&&(fx.array||fxąĳŘĄĉŭoTo=fx.seed?['去播种',ēĥұ]:fx.rune?['去淬炼'ďćʫBag(d,'arts')}]:null;ęċő'+tcl(it.t)+(A[ĊķǸ]?' icąĄЏrimEĄĀĩ,ĎķȣđċŤ},[ąĭƓĄĀĵĆĝȧĄķǜĜĝǔitĎċŰěąЈĄċżusĥġŖğĊǒććҕtĔċťĝāǣąāќ},'使用ąĆЙgoToġĀƠgoTo[1]},goTo[0ĉĝѐĘĂӔĒĀǖnĄĀǖask('卖出给坊市（折半价，立刻到手）　单价ąēĖfloor(it.v*0.5)Ăă˃　数量ćĹҵt.n)ĄķĖąķĄĄĂšnĉĂɒĊĀɅsellĈĀɆ,n:ĆľˡļĀɒ卖出'),m.r>=1ĨĥȥauctionForm(ćĀƕmax:it.n,nameąĸƲ})}},'上拍ĆĥɄąĊʣĞĥǎĄĄș囊 '+čķѓ+'/'+inv.cap.stack+' 种　·　卖出＝ĀĀʔ卖ĀĀʜĂĀʘ；上拍＝挂拍卖行 24ĀġȞ，价高者得（手续费 5%）ąĥǩĆļȺub===Ąāǹ{čāыěĀƣ已装备：'+['w','a','r']ĎĦţĄĸһĆķҿčĉťaĆāҌa.iid===inv.eq[s]})[0Ćľ˘SLOTN[s]+' '+(it?ĄĀɧ:'—ĈĈЎĄĊʶĬČєĆĀƜĊĀƼaěČѓ'+tcl(a.t)+(a.equippeĈĠǷĉāЖaĔāЕačāДaėāГĘĮҕa.ąĮҗSLOTN[a.slot]}),aĆğšĒīаrĆĐʧ★āĀĀ'ĆĤȦa.qęħƺćČǟaĄČǛĉĂɴa.st||{ėģǛ(STĄĂɜ)+' +'+(a.st[k]<1ĊĿ˷.st[k]ĆĔ˃:ĄĀĐĈĀˮ')+(a.q>1?'　★'+a.q+' 品质 ċğѷ((a.qm||1)-1ćĜӀ:'')]),a.af&&a.afĕąӊĉĀӳa.afċĀǖfĆĀǖf.nĄĀǎf.vċĀǊf.vćĀŷf.vđġӽ,a.rn&&a.rnġĀƉ'符纹：'+a.rnĕĀƏSTN[f.st]ĺĀƕīĂɃĈāĉıĂŬċĂɃnequip',{slot:a.slotıāӷĄĂӖ},'卸下'):łĂˠąĀƚiid:a.iĳĂˣćĀƘ装备'Ğğ˽ğĄұ把「'+aąġп折半ĂĂď得 '+sellV(aăĂʕ？想卖高价请改用「上拍」čĄӐĎĂɽArtŇĀǤĂĂɴħĂɭrefineOpen(a.iid,d)}},'Āăˀ),!ćĀѨ&&ļĂˇąĀǜ,name:aĘĂʾěĊʄ法宝匣ĄĂʳĈĺƩĊĂʲarts+'įĂʯĎĂʮĄĄӱĄğФel=sk.eqArtąĦǩďĄȖċĄǠĀąĪ（被动ĀĢЭ修炼）Ėďƅ},sk.gongfaċāɣgĚĂȚ'+(gĒĂȐg.locked?ĄďƀĞĢОąĀİ||ćĀŐĖĀҮgongfa',{id:gĴăѴąĀɗęĢЬ'《'+gęĤЋgĎĤЈĚĂɂgĄĂɂĂĥӁ'+g.rate+'ĂĝѤg.descĈĀѽĈĀˁ神通（出战 1-3 个，点击切换ĜĀˇĒĂӠvar on=sel.indexOf(a.id)>ĄēӈđľǑtem'+(onĉĀ˙aĭĀ˙ąĀİĉĀˍiďĀƇ;if(i>=0){if(sĆĈҖ<Ćĳє;sel.splice(i,1)}elseċĀĬ>=3Ćĸɛ最多三个ċĸУ}sel.push(a.id)}ĎĀіarts',{ids:selŏĀєďăŋaĈĄӮa.mult+' 耗'+a.mpĜĄӺaĆģʘĈĨĹ)đāɁĉĆƠrc=d.ĄĆƘ||{pills:[],forge:[]}ćĻɆrlist(list,tiĄčǁturn ċāɞąĽɭĦĤŢrĝāɑr.caĊĐʼĉăџr.outċăѠĉăѕr.outęĐˏname+(rćČѼrĄČƄ' ċėӶrćėӶĝĩӠr.iČăƙćČĻićĢӸi.have+'/'+i.nĉăƀĄĊ҃rĈĈБĦĐѦĕĂӟĈćѠ.canĕĊҩĨďҺraft',{idĈĐюćĎěvar nd=ėāĝ;if(xĆġȿĄčю[{id:r.out,nameĄĀʠ,n:r.n,t:Ąļҩnd,r.out)}]ēĆǐndććĩĊĖǙčĀĜ},'开炉ĄČч]}čĂȸrlist(rc.pills,'炼丹（丹修 +25% ĀĞф，丹ĀģǾ）'ĆąǕĆĀĭforge,'炼器 / 制符（器ćĀĲ与品质）')ĐąƄpetąąƃpetBody(d)}ČĭЦbagĦĭУĀĳһīģǯĈČǭ随身之物'ĜċƀčİɣĄĉʶ,tabs,bodyČČмenergyForm(eąČжİĠęn=čĽŨąĆőĄĬЕ'1',min:1,max:ĉńʔmax(1ćęŎe.left,e.balance))ĆľǓĉğӭąĊѭerrąĖǪouďğҵnumēğʠ}ĉĕʚcalc(ęŁˇąĆǣĄļɥ||0,ďĀƧ;ouČęƝ换ĀīɄ ąĀʑk*e.rate)}
+n.oninput=calc;calcąķɇobĕĩĵ},'供奉');
+obĆļҏđĂˇob.ąāɓąāǳerčęȢvar k=ďĀǖ;
 if(!(k>=1)){čĀķ至少供奉 1 点能量'ĉčȔk>ćĀȅĎĀĳ你只有 '+ĆĀĠ+'ĎĀľċĄȰ确定ĀĀţ'+k+' 点论坛能量，换 '+ćĀȼăĄȯ扣的是论坛上真实的āĀğ完不可退ĉĄȵ
 ĈĀȁ=true;obċĀƓ供奉中…';
 ąīƐċĄхnergy.offer',{n:k},{forceąĈʥ
-ĈĂѮĝĢȡĄĵşćČǈČĀȞx&&x.msg?x.msg:ĀĀƙ未成，能量与灵石都没有变动'ĆĺˁĉĀǓfalsđĀǔ'}}ōŀƲĈġƼ能量āĀšĝčЈ把āĀʳ供入ĀĺҨ，换成灵石。ĂĀЭ ＝ĄāăĉĀ˄（ĀĬƓ水涨船高）Āħ˳最多 '+e.dailĂĥȸĚčѱĘĠѯ你现有āĀſčĀѰ，今日还可ĂĀіeĄĎĪĎĀŢċĀŔ8ąĭ˄ĀĀɕ ',n,' 点']),out,erĖČȎobĝĭȻěŀƲ算了ďŀƲĉąĘiĲġҺĢāҟit.max?ĊāҘin(it.max,1))ČāӁit.max||1ąġ˲iĘĀŢĊĮй起拍价（灵石）ĄĀŌĥāӛęāЖāąȓŇāЖmvąāЗmiąāЙĄāЖmvēāЗ请先填āĀǕ至少 1 āĀǚĆāǭĞāʉ上拍Ċāʉitem=it.iid?{iĄĈǎid}:đĈɰĆľʲďĄȠuction.Ćİŭitem:item,min:mvũā˒没能上拍ĀĽǈ后ĀļƬĨāˍĀĀ˓Śāˍ上拍 '+ĆĈИ,ĄĀӾĔāȎ6ĆāȎ数量 ',n]ěİзĆāȽmiĞĩǼĂĆŞ后落槌ĂĆš。ăĆš（商人免）。同时ĀāЕ5 件在拍（与ąāȅ.js 的 MAX_ACTIVE 一致）；卖出的钱一领，位子当场空出来Ăā˗er,ŔāʢāĿҏĄāʢČċ˟淬炼 / 灵田 / 灵兽
-var RN=['炼气',ĀĩĆ',ĀĩĦ','元婴','化神','炼虚','合体','大乘',āěӱ];var RN10=RNĆĉƒ'仙']ĉăƫąćĸĊĒɕfloor((a.vĄĜɫ5*(1+((a.qąĈţ0.15ąĮɏSTN={atkĂĨɠ,defĂĨȹ,hpĂĨˏ,mpĂĨʨ,spdĂĨȢ,criăĨǹ,ratĂīӘ',spellăĨǎĉĢоur(ms){msĉăɇąāɏs)||0ąİɸĈĄӃms/60000);if(m<6ĆĦǌĈăРm)+' 分';var hĄĝŕfloor(m/60),mm=m%6ĆĦȹhhăĪ҇+(mm?' '+mmĂĀĿ:'ĐĒǎĈćǖiidąĄĆČċФfine.viewĄćɽiĔĔД||!xĄİш!ĆĔ˦finćľ˟炉子打不开ČąӳS.rflk=ĄĊӥfineDrawąĔʹĄćɪ
-ČĀƱDraw(dd,ĈĀƴčĂȚvar r=ddĄĀƃĄěУęāˣĄĀƐĜĄǴĈĦʿutěężĚĆƒ{inv:dd.inv}ććҙćĀŞbackąėĵ&&xĄěɐċĀɗĕĀȯ;elseĄĀƠĉĂёfRowąēɡa=r.af[i];ĄĆѸĄĀʈ==iĖēҊģĮʧa?(aĆĉžačĈӨaĉĈӨa.v)):'空槽'}),
-aĐĈĶon?ąąб:'smąďʶ'保值重铸：属性不变，数值只升不降，费用翻倍ĔĬɬrflk=on?null:i;đĀт}},ĀĀŒ'Ĉď˵ĚčГon?!r.reforge.canLock:ċĀĒĪĲŁfineąĀļćāŦ,slot:i,lock:on?1:0});ĄĀЙ}},a?(on?ĂĀȋ':'ĀĀĄ):'开一槽'ĆĚ҂rowĐĥʂr.maxAf;i++)rowĄĎƑąĀНąĝƑk=(S.rflkĆŃʙĆĀĎćĿʦĄĥȞosĕĥķąĴǛ铸 '+(lk?ćĀȢlockLs:ĈĀĐĄąʷ ·ĒĀīMatĉĀĭmatčČьĎē˃' 需ąđȹ（有 '+xĄĆˠĈĬǂ、')+(lk?' · 保值ĂĀё、ăĀёĄēǬąķӁl=h('select');(r.star.candąĕĲĎĸҒ){seĎĶѶoption',{valuećđƆiid)},čĊ˼x.q)+' #'+x.iidćąВstarĘĈђ升星ğĆҢq>=5?'已至五星，无可再升。':'以另一件同名法宝为祭，ĎħɵĄĀǱĆćŴ，耗 '+ĄĀĔĄćĖ。失败只毁祭品。每升一星，基础属性 +8%（词缀与符纹不受影响ĀĬƅ}),
-ĉĀȺĘĐӛ'},[selĔĲŇċėҀ!ćĀœĨĉҢ以 #'+sel.value+' ĀĀǶ合炉升星？ęĉ҉ĄāƫstarĈāƨwithIidąăҢĆĀŔ)ĊāƯ'合ĂĆӚ:ĜČŭ里没有第二ĂĀʇąĚŜvar sockĊāǌk=0;k<r.maxRn;k++)sockąĘӽuneSock(k)ĊĠŌćĀĖ{var rn=r.rnĄŌŷ!rąČ˿ ęđſ◇ ĂāҰĉĂĦĻĊȫ剥下'+(STN[rn.st]||rn.st)+Āċŗ？纹路会碎。ĠĀʐunrunĉāлk:kĊĀɼĒĀŠ +'+(rnčĂƤrnĉĂƥrn.v)+' ×ąņҪbagr=(r.runeĄāǽĦēƲČďќ!x.had||rćċɪ>=ĄĀ˓ěĂŁyđĂŁċĀȂrune:x.idąĀȈyĊēŖăĔˡĆāɒrunesĘāɓ符纹ĂłČĆĀƧ+'/'+ĄĀƪăāѓĔĄŻsocks),bagrěāǯbagrĜāĝ没有符纹。炼器可制，秘境与灵兽也会带回İěƁīĄвĀĄǠăĈ˽ĆĈЩčāҦr.qĄČӪĈĀȯ词缀ĂĀȯĆČǌćĀȯAfăĀȯĔĲћcost,star,runesĹĴӟąĀсshut},'收Ăāɿ])ĊĆŨĆĭҹf){if(!fċŁ˕ĉĲǕdPick(iĄĀħ.seeĆāӂĆăӤ手Āāʾ种子，坊市有卖，游历战胜也会掉'ďĘЋīĆǉŖĀ˚ĂġИĄġЖ块田播什么ĘĊʸąĀǯĤĳҺĈčʙsČďƚsċčʃėāǧĘĄŜĎāЇfarm.plant',{i:i,seed:sĎċŽċĭ҆ĉĉқsĔč˱,ĈĴġăāȶsĞđӊs.ăĄ҇后收 '+s.mat}ĔċҷěĜʝŎćŖtile(p){if(!p.seĆĆЕēĀˀfe onĕĲњdPick(p.iěċʤ空田 '+(p.i+1ĖĖн fąŌӎ'点此播种 ▾ĈĂ˹kids=ĊĀʩĄĀƸĖĀʫĖĮȹĝĹʃ(p.withered?100:p.pctĆĹ˒];
-ifĈĀĢ)ĤĪӁ已枯萎'ğĳƶğĄȧfarm.clear',{i:p.iąđƫČĲ˓理')ĈĲƛp.readyĥĀƭ可收 '+p.matName+(p.hurt?'（受损 '+p.hurtĄńȇ)ěĊˢĬĀǙharvestĆĀǛŃĘ˩ĈĀĘ);ĄĊ˕ąĘˤĘęǱĐĘɲĔĐӒăĒȌ获ĆĀɲ{ĤĀɧ还ĂįГur(p.left)ćĀɩ · ĈĀɫ:ąĻƀif(p.evĥĀˇ⚠ '+p.ev.n+'　ąİӘp.ev.leftĖĀʺĮĀʶtenděĀҏ处理（ĄĀƊcosĂĀл))}
-ğĂķp.t)},ĄĒѕĄąǏěąŧ手中种子：'+ĜĂƪĎāӊĉĎѪĬę҈灵田药圃ĜėƬ共 '+f.n+' 块 · 筑基、金丹与九宫聚灵阵各开一块'}),ċĂщ?row:ěĀǥĂĂѢ。ĉĂѢİĜҿf.ploĄčƈtileĝĎœ成熟前每小时可能出事，两小时内不理会便受损；受损两次就枯了ăăʄĉĨѨĆċȵ{var pv=d.petćĽɴ=pv.pet;
-if(!p)ēĒȆėĀƍ尚无灵兽。ĀĄЫ的兽卵可以孵化——妖兽会掉，灵兽远行也会叼回ăĈč(pv.eggs&&ĄĀĈąăƫ?ĪĂʄąĀļĊĀэeęĄǣąąƠİđҤeĎĂҰŖēń}},'孵化 '+ąġЍ（'+e.peăāơąĖȃ]);ďćжlćĚфőĀƙĄīЫpĉĈī(p.hpPĆĚоĄīяeaďĳȚĕĝŬ(p.mon||''),p.nameĎĝūďĕƾċĂџ ĄĀĘąĒЕp.eggTier||0ąĀŔ+'　'+pąİŀ+['','　化形','　仙形'][p.ev||0]ĠĐӒpąĎʏ攻击ĄĊшp.atkăčƏĀĸƥąĀēhpĕļɰęļЀhppĶļʬ(pv.maxąăĦct(p.xp,p.need)ėļЄĊāǃĂĀǁhpp+'% · 历练 ĉĀŗ'圆满':p.ĄĞЉĄĀŘąļɫĄīЌpĄĂȔtrip)trĉĬƜĎąƾ远行ķĶɺp.tripĄĞ˯NćĘʔ(ĆĀĘady?'已归来':'ćĂɪtriĄĂ˛ĔĂɭďĆˈĉĀŐĨāȾpet.collecĕļĘŻăĹreloadăăĩ取ĄĶяćĥƯĎćɝpvąğśĔćɛrg){if(rg.open)ğćɧrg.id},rgĈğİg.name))});
-ĞĀм（ăęѲpv.tripąİӄ次ĘąӶ[selĆąˡ(pv.hours||[4,8,12čĆȴhhĦĆȵĉĀƄ<=0||p.hpP<0.3ĬĀвsendćğƄĆćƵ,hours:hhčďɢload()}},ąĉѥ)})ĝĂж远行期间不随你出战āĸǨ足三成不能远行。回来带āĸĹ尔有兽卵或奇遇ąĂмvar feedĘĀʈ喂养ąĂ˘feed&&ĄĀĈĚĂ˘},ąĀĥċĒƝdĝĀɰīĀɌfeedąċɲfdĐĐ˵ĆĀȽfĄĝР' +'+fd.xp)})ěĆ˸ćāЖ它已至二十级，历练圆满，再喂无益。'āŉŒ与含修为的丹药都能喂ĉćгlack=(p.evoCostĝāƯz.have<z.nĆČƝvoLb=p.canEvolve?'ĀĂǉ:(p.lv<p.evoLvāĀĒ（需ĄĄŬoLĂĂǶ）':lćĔīĂĀġ缺 '+lackċĀʄĉĀżname+'×'+(z.n-z.haveĊĒЇăĄѵĀĀƀćĀƝĬĢǬąĀƲĤāҋĆĀǶĨćӌ让ćĴķ化形？ĀĠҐĄĀȘCočĐŨĒĀǻzċĄƏĘćӸpet.evolve',{ĖĀѫevoLbĘĉӗĎęʶģĀӬreleaseĢĂŬconfirmďĀȫx.msgċĀǡyėĀŨĄĀņ:'1Ąĕƭy&&yĉĀǭĐĂƷ,ĊĂǪ}},'放ĂĺҵďĄˤ},[head,trip,feed,evo,ĈĀЯėāˡ化形材料：ĨĀ˥ '+zćĐɪČĀ˰+āăȫ后āķТ1.3ćęӥĎČŵmarketĄėјmarketĠėћshopģėќMarketĆėӯĎėїĄĀğdĊĢɎvar re=d.shopRe||{left:0,cost:0ĄķȿreĔĸȣČĉ˓e.left||m.ls<re.coąđǪ:ĄĀě?'换一批货，已买过的不会重复出现'āĜȚ补货次数已用尽ĩĀӒshop.refreshđļӉĄĀǭėĐм)}},ĆĀƔ补货 ◆'+ĄĀƱ+'（余 '+rĆĎʁĀĂгāĀƥ已补ĆĸɅęĀȏĨĔĆnergyĈĀƽĊċвenergy)ĈĐǶĊĀĘĄċȃĂĎӫĆŎĖopĤķѶĀńɄĶĐ˜每日换货 · 商队每日可请三次ĝĐ˧囊中 ĊĐ˪ĞŁķĄĂĄbottomĆĢǜeBtn,eēĶҤĄĈǯd.shopĶĈǮsĄĀЌēĒĦsĔĕ҆sčĕ҆sĲĕ҆sĆĕ҆KINDN[s.k]||s.k}),s.ćļҡęļǪĖėʷ sbĘĕŶđĀʼ ĈĄɋĂđƩs.pricăĄɆ余 '+s.leftĥĒİsĉāȘĄĀŊĨāĨbuy',{idx:s.idx}ĵāǯ'买'ćĢќ;
-var a=d.ĄĎƲs||{open:[],mine:[],ended:[ĊıќitemAttrćďˤĄġʺit.stċŗıit.st)o.push(ċĖƺ'+itĄĖƓĄĀļaf)it.afďĄȽf){ąĀŃf.n||Ćĕҝ||fĈĊЗğĕҤĄė˺it.rns&&it.rnĆĆɤĄĀŢăĖĜĄĀĚĔĂșSTN[z]||zĊĂӺĆĴȌąăɆoĉėŚ:(ĄĘɜčıӯitemName(ićęђąĘʷ(it.nĆŏљ:'')+(itĄğǝitĊğǞit.rnąĀĘrn+'纹ĄĈǳĈĦбeft(ĆŋɄĊĎǺend-(S.me.now||ćĬǭćĀǗs>3600000ĉĀɣs/ĄĀĔ)ăĄɡ:čĒīąĀĦ60000)ăĎȜĄŔӇsc=ċĖӼescrow||{}).reducĈŏȇt,ćėąt+ąđөąĀĳ[k])||0)},ĄĎʷaucĤĂČĀĕȼķĂč出价托管ĀĸĘ落槌由天道裁定，回来即自动结算ĭĂĔ+(esc?'　托管ĆĀėesc)ąĸЃČĊҨĀďɨ'+(a.openTotal||a.opeąċǨ)ĊĀĜ>ĊĀě?'，先列最先落槌的 '+ĊĀę+' 件':ĄōȳėĞȔċĀōĄĀčħĞȒĘĶȭ ąĆӅČĠǳtemċĠǸąĆӌĄĀět||0ČķɷĆāŒx.itemąĔďx.sellerĆāӆleft(x.endĝęЖĄā˳ĄĀŏ})]ĒĜҌććƆĕĀ˺(x.top?'现价 '+x.top.amtāđŬ '+x.min)+' '}),x.myBidēńŀ'+(x.top&&ĆĀŃ>ąĀİ'red':'goldĆħǼ我出 '+ĄĀĠęĀĺ · 已被超':' · 领先ĊėˉĲĉдamtĉęЃ出价（不低于ĆĀƽ?Math.ceil(ĆĀƋ*1.05):ąĀȊ）ĆęЅģĀıēęЦamtĕĹĎĆđƃbid',{aid:x.aid,amtąčȞamtČĿʼĝĂɵrĈĂɵ出价ąĂɶěĉĥ空空如也。去ĀĈТ把东西挂上ĂĈБ),a.mineĈČʆĈāȇ我的拍品'ĕĘūĆāƮmineģķţĔāĵ(x.settled?ćĀĊ.winner?'成交ĄāŘttledąăĦ（ĉĀēwnamĂĎ˅:'流拍'):x.ĄŀЎĀđō等待裁定'āā˒čāƏąĀТ' čāĪ 无人āĀɒ)+(x.claimed?' ✓ĄĊ˟})),a.endĆĆɤČĀȵ已落槌（我参与的）ğĀȺendeğğӯĥĀȻĆĀӇċĀɂĈĠĕmĄĠĒ你拍得ďĀɔ:'他人đĀė):'ĂĀɄ)}ĉăǘwon=[];(ĄĀǄėĎӲifćĀƑ&&ĆĀɑ&&ĥĀƮ&&!S.ĄŚʥ[x.aid]){čĀđ=1;won.pushĆāуĄĒǎwonĢĤŹwon)},120)čłӽąĒǨ,shop,aucĐąɾarena + bossĄąʄarenaĠąʃĄŉŦěąʄvar bċńǳsđĜҩrenderArenaĄąʫ.arena,b?bĄģӈoss:null,'arđĝȡArena(a,boss,sub,wxĔĨģarďĨģĄĸ˸ćĨġąĀĐćĨğarăŉɔ],['wx','棋局ęĨğwx')wxĉĨğif(a)ĐĀƬ'ar'ĊĨłarenaĎĨŀwxĆĨŀWuxąŚȍ,wxĬĠѦĈăǣ论ğńƢ余 '+aĆą˳Ğŀ҃Āŀʂ '+mąĹȨaăĂєāŀʔĉĀĖssĄāȈĆĀđw+' 胜ĉĀĐl+' 负 · 点到为止，不伤根基ĚăżĩĻɡĝĉȫ},[p.nēĚӡćďȾRN10[p.r]}),p.paĖĂҐp.pa==='xie'ąĂ҄blueąĂ҄PATHN[p.pa]ĈāѹĘġŹćņƻp.pwăāђĀĹǿ'+p.arėĹ˳ČąŽaģĢɆrĎāǲ.fight',{uid:p.uēĒɆrĈćȺrĐĉʧrđĢɉĄĥӟĔĥƸĈĀĸċāȰrĊāȰossĄČˌĀĀӝľčҬđĆӒaąĆѢıĀȽĊĆҝċăķĖĀǍ},āćĠĂĆѿĆĀŀĂċǜćĺƞboąĹĬw=bossĄĺХĭāȐĀĺǳĚāȐĊĺɣ（Ċĺʁ）Ăĩǽ余 '+bossĚāȱĕċǙėĺЄĜĽҡĄĀĮdesc+' 伤害按自身境界折算威能，全服同榜。次日登录ĄŁӿĘŇʕčĕҙĆĔȆęĄҲ我的Ăİˇfmt(boss.mineĥĊХĆĀȧīĀчboss.attackĔĂɾũāżaĄăӔ.ĈāŸ出手ĒĭʀĄāҭbossĄģȳĆŝƶ0ČĊɅbċĥĖėģɁbČģɁmĲģȾćĎӒĖċȻbĝģȻfmt(b.d)ĉĽǃif(a.standings&&ĈĀČĵĻȽĀņ˓ĜĂʳĀĂċ· 前 20 名ĚĂȳćĀƊħĂȸćĀɸpĵĀɸ+(p.rank<=3?' r'+p.rankćĬʒĆĀŠġģӒp.n+(p.paĂĆˡĈĂɋċĎӚĕĀʴp.ssăĆɺġěҎ赛季末前十名获能量奖励（5/3/1），前百名获ĀĒбąļʬĚġŁāŃǹ
-var WXN=['金ĂŜĴ,'木ĂŜı,'土']ĎčƢąăɀďăѾwxģĉȀArena(nullĄĤҕwx',ĄăѢwxĉćąwxDraw(ĆłʡĒĀĹĊĔӅwxTile(v,iĆĻћS.wxĎğӦid:'wx'+iĄŝĥ'wxt e'+v+(st.sel===i?' selĈĭƚWXN[v]đĐƳwxTap(i)}}ČĀƍap(ČĀƊvar d=st.dĄĴȈ.mode==='d'&&dąāѾĆđǶĀĉǐ交卷，可先练习'ďĨũĆĀƬnull||ĆĀĎĈĨмćĀǏ){ĄĀċĈĀǢĄĔʺĆĀɩĊŋӒaĄĀĩ,ar=(a/6)|0,ac=a%6,br=(i/6)|0,bc=i%6;
-ĉŞŃar-br)+ćĀďc-bc)!==1ĆĀƄđĀŴąĀȏvĆĦӔ>=d.movesĆĀȏ步数已尽čĀȉąĪȄwxSim(st.seed,ĆĀŊąđӿ[ar,ac,br,bc]ąĂҧ!res.okĆĀƗćŃѿ0=$('wx'+a);if(e0)e0đŌ˹elĄđȶe1ąĀıi);if(e1){e1ĐĀĲbadąĮŊe1ĊĮŉĊĀĮaddĄĀīĄĊѺĀŘҐ步不成连珠čĀǿąĀǩ=ĝĀǲ;ĉĀǤ
-var fĈĀǥ,fČĀǀf0)f0ĎřҮlrĄŀƶ1)f1ēĀĝ
-ēąȡĆĀ˱},280ďħŲĉĄхąœрĈħţwxĘħţdėħţ!S.wx||S.wx.day!==d.day)S.wx={day:d.day,seed:d.seed,moves:[],selĄľ˳ode:'d',d:d};
-S.wx.d=d;čāǜėĀ҈ĄĮЏone=ĆāǧįĦȌāāҴ'+ĉāȸp'?'（练习盘ĆĂş
-ĘĂʌĀŅǛ生ĀŅǗ生ĀŅǓğęɼĈŅȕ以上相生或同气即ĀĀѾ：相生 10×长²，同气 4āĀć连锁一次多算五成。āĀҝ的交换无效ĖħƥįĉӤĉĦȊČāȞ+'/'+Ąāȡ+' 步'ğăđres.scoreĄĈӡĝĦŖ连珠 '+res.chainăąȦ最长ĄĀēmĄŋџĎĀǨwxg'},resĈĦҋwxTile)ĭħʼ[
-ĊĂģĔČѢĈăӅdone||!ČĀȪĚČѩČĀī<ĄĀɒ&&ċČ҂还ĂňɨĄĀĜ-ČĀĴ)+'Āĭ˾就此交卷？ęĤłwx.submit',{moves:ąĀŇőĩӚĆĪȐąĆ˄wxresĆŅǾwxres.drops)ĦĎѴ;S.wxĆŕӊĥĪȪĝĂӶČħҿĝĀĮ},done?ăĂО':'ĀĀĄĜėŤĒėǂĐāЀċĀѭ('wxp:'+ĈĊŧĜāТċĀĿ'p'ćāдćāӿ},ČĀĦĀāʾ':'回到今日ĖĤӞĊċƩċĀѻ&&ĊĀŎıĀǫpĸĀǫĚĀǝp'āČэ盘':'重来')]),
-d.mineĲĨəĂĀˮĄąǞd.mine.scăāˉ+(d.rank?'，第 '+d.rank+' 名ĄĂĕ:İĀůfmt(d.tiers[0]ĂĀŧ起给ĀĊɆąĀƀtiers[1ăĀę加ĀďŹċĀĘ2ăĀĘ另赠悟性ĆĄƐĭĂǮ今日棋榜ĚŀƝĊĨ˻dǈĨ˻fmt(xĆĀ˞ġĨ˼ĀěҕĀĨ˼落子ēĨ˻ĎĄ˾secąčӨsecĢčӦėĐЇČĄ˥SecĘčӤSecđčӢĉĈǿsectĉĈǾsect'ĄĈſd.secĄČǕs=d.sectĄŃˇLeader=s.myRole==='掌门'ĭĆѶĖŉƵćăňs.level+' 级 · '+s.memberCount+' 人'ğŉǴesc||'（无宗旨）ĤŊȃĀĀǋďłġs.leaderNĆĀƳbćĊŻĒĀįmyRolăčĥ贡献 '+s.myPtsčĀļ宗门加持đł˲ĀĠ˅+'+s.buffđłʤ入门要求ĐĀķRN[s.req]+'以上'ĥčѠĝćЇįĊӝ捐献ĀĝĬ1āŉŨ = 1ĀĀȁ）','100'įĊҔsect.donate',{ĠĊҊSecĞĊ҈捐献'),s.wage&&s.wage.lv>0?ğė˵ĄĀĭtakenĨćǁsect.wageđĈąĠĀƲĉĀŶ?'俸禄已领':'领俸禄 '+ĄĀĚamounĄňȆ,!ąāƧ?Ņħˇ退出宗门？贡献清零，一日内各宗不收。Ęńə'sectĄħˈĎńɉsecĄğЯ退出ĈĢșąıˣsbossĮćģ宗门试炼ěćĤĄĀřĊłб·āŊĮ2Ġĉˣ伤害计入ĀŊģ全宗周Ăōв,ĵĔĹďĀȤĔĊȝšćӓĈĀʌĆćӃēĂЅĖĄюćĀɔĉćӛ1ĭćӛŹćҲ;
-if(s.costıĀѶ建设Ĝćқ库藏ąŐŶ.treasury)+'āĂĕ· 已用ĆĀěspenĒōəĄăƆĄĀơĎņП
-ķĊǲĉĂőbąĂʏğĥǥ●āĀĀćĘсb.lv)+'○āĀĀĉĀĕmax-b.lvĝĮŶbĆĢŭ,
-b.costĄćŭĞőɫĀĚЁ顶'}đĤʊs.canBuild&&ćĀɶ>=b.costČěҗĉďʝąĀĶ||ćĀĶ<b.costĨāЫ动用 '+bĄĐу 库藏，把'+bĄāɳ修到 '+(b.lv+1)+' 级ęņơĄāȢuild',{b:b.kąāț||!ĄĂŁĈĿЯğăɈěĂŰ(f&&f.data)||ĉĂȰ升级ĆĀǑĠĈȵćĀɇ?Āăŏ与长老可动用库藏。Āāĉ= 全宗ĀĀӹ-ĀĀӹ。'āāě由ĂĀğ支配。你的每一次捐献都算ĀĭˁĆĄǊif(s.wkĮāƖāŋҹĜāƖăĐƻwkĊńӘ · 达成几条，下周一并发赏ČŊЅ[['don'āĂн贡献'],['sb','试炼Āāз],['awĂČĬ胜场ĎĩȠgĄļʆur=s.wk.cur[gĄŃҊ,need=s.wk.goalsąĀĘ1ďĒǨĔĞˡġāǹtext:g[1]ğāНcurąĻŪfmt(ĆĕƼıŒĕ(cur,ĄőӄĄĘʈĞĀм(s.last?'上周达成 '+s.lastąŉǁ3ăňď+ĀĀĝ出过力的人ĀŌʤ登录时自动ąĊ˨İĄӿ门人ĘĄӽąĄŴsňČŪėČĶrćĄɐ?'gold':ćĀĔ长老'?'ĄœįćĉĲp.role}),ĖČǀĉĀɜĆČǂ+'ĉŒȑćČŕĂĄƬp.pts})]),ąăɆĆčЄp.uid)!čĊăĊďɳċĀƲħĆȬmg('dismiss',p.uid)}},'免ĀĀŅĔĦɯĖĀņappointĉĀņ任āĀņıĦȝĉāә传位给 '+p.n+'？'))mg('transferĉĀū传位ĕĀŪĢăѹĉĀű逐出čĀŰbanĉĀū逐出ĆŖѐĊĂӒąĀʺĮāм掌门事务ĘĕЛıĒӭrĉĄМ入门最低境界（0 炼气 … 8 渡劫ćď˚s.reqēďʺrĄĝӍ)mg('setReq',null,{reqąĄЕrĄăˋĂąĠĳęħĊĄӉ宗旨（80 字内）',ĆąɎĄĉģČĀƏDescąĀƐdesc:t})}},'改宗旨ņĀЌ解散ĀĄʄ不可恢复。ĄĀЋdisband')}},ĀĀĝĆČОČĊѓmg(action,uid,extrĄĥҶpčĤɕaction:action},uidĆĞɄuidĊšӝ{uid:uid}:{},extraćŞůďĂӄmanage',pĖĄЏćĖѕĚŐˆ宗门名đŒŐ}),descėĀĶ旨（可空ċĀĲ0})Įčĭ你是ĀŋɾĝĄЭ加入宗门可获ĀŎъ持与āĄҗ；金丹之āŎѻ'+dąăȓăŎҁĂĄъm.r>=2?Ğĵƛ[nameĎġƿĄńǆ6px'ĄĀȁ,ħŅф6pxĊĶċls<dĜă˫ēĀ˜ĜŒģ,desc:desc.valąĄӟēąȓāĀȗĈāːįĭˊ'诸宗ĚćˍĉĲˠdĐĎхsĹĂ˚sĘĩЪċăСēĆӛs+' 人 · 掌门ĄēњąĆѵ+' · ăĶȟs.req]ĥĆӻ'})]),!m.sectĶīʖďĀ˲join',{sid:s.sđŊȱćĀ˓拜入ĈŐȅěćѠ天下尚无ĀŏҒ第一个开宗Āăǝ会被记住ĤćѫleaderboardąĐǗlbďćѱlbLoad(ĄŖȷ)}ĎāЫĄĀĠtypeĐćҟlbąĆӃtypeĞĐȈĉćѯlběĥѲēĭʳĄŖ˟'境界Ďňǰċř˸],['season',ĀČҶ'],['wealth','财富ČřД],['xian','仙籍Īĭˑ(ĄŢэćĭ˓ĄăґĔăƎąĀɏČĭǦčŔŵ.lb)];ċĀˡvar LBSEAL=['','壹','貳','叁ĊŠЊlbVaĉŠІąšɦ.vĉŢӳfmt(r.v)ąĆŌr.vĄřЧop three as an ink-mountain podium: first centred and raised inside a gold ring, second 青玉, third 赤铜Ĉřйpodium(toĄŦǭđţĹpodiumċĥӱgate(x,top,w,hh,col,lit,glypĄĽʣl=x-w/2,r=x+w/2,b=top+hhąčƝĈŝȔ'+(l-7)+' '+(top+12)+' LąŝЙ(top-7ĄĀĒ(r+ĎĀĪĆśһ'+col+'ČśțĉŜҶ'+(l-4ĉĀŀ0ďĀū2ćĀūĎĀĪēŗҢ'+lit+'ĒŜĄrect x="'+l+'" y="ċĀŏĄĀī'+w+'" Ąũʾ"'+(hh-ĊĀŲ#0d152ĈŝЭĆĀǮčśǰ4ċĀŷ(l+5)ČĀŻ5ċĀŻ(wąĀūċĀƀ2ęĀǳċĀŽĈŜƠ5ĎŘЇ7ĎĀʅ+5ĈĀɚ44)+' H'+(r-5)ćĀŔęĀťčśɆ'+x+'" cćĀǤ30)+'" r="12čĀТıĀĻħĀ˳texĄĀɻxċĀɷ35)+'" font-family="STKaiti,KaiTi,serifĄĀġsizeĉŝɀ#1d1607" text-anchor="middle">'+glyph+'</textħĀǠ7ģĀǠćĀɺ4đŘѡ2 4"/>'}
-boxěřѢ360 170ĒřѤ<defs>ċşʭcl" x="-20%" y="-60%ĆĀһ140%ćĀҵ220%"><feGaussianBlur stdDeviation="5ĉşɦēŠŬltŎŠŬ6ĥşӀġŠūąşИČřʫ18ąŜɊ6" r="54čŝ˕tĆŚŭĈşɎ170 L30 136 L62 122 L96 140 L130 17Ĉşɘ131d2ċŞҏ23ĄĀń262 142 L300 126 L330 146 LĄĀ˴ĚĀŇ96 170 L136 126 L158ĄĀƅ80 100 L206 136 L228 146 L266ČĀŘa2633ąĀǧgčŞœclĊŝӘ6"ĈŝңĈŜҍ151" rx="62" ry="Ćāĥ#3a4a5a"/ċĀĸ30ĵĀĹĆĀʶĆĀĹ70" ry="6ĐĀĹ/g>'+
-gate(60,50,74,98,'#5fa37a','#bfe6c8ĂĂҡ)+gate(300,60,74,88,'#c2734a','#f2c29aĂĂӈĄĀĪ180,20,76,128,Ćńȵ,Ćńɉ,'壹')+
-'ĆŚĘvar podsđĂлs'});
-[[1,'p2'],[0,'p1'],[2,'p3']]ĒĔȀvar r=top[x[0]ĄřѾpm=[ąăš===Ąĺʜ?null:ĄĀČ,r.pa?PATHN[r.pa]:null,r.titleĆőǎBooleanĊĮɥ;
-podsěġěod '+x[1]ĒĖҀlĄĄĹLBSEAL[r.rank]||ĆăǦĈČĩċĀŗnąĤʒr.nĆĪ˃}),pmĎČиpv pĆĤˁpmĄćŹmĕĕĶpąĳхąĀȸĆŜɁčŦĕpoĈŮˠboxĉėʡbRow(r,meĜČɜmeĆćƝrčđơĦČɞ+ĄĀȩĆđƢrēđƢrĜČɹ},[rĄćʈąĀЪĚąĈĄĀĤąĀɉręēіrĢēіrĉēіrĦŚѻrĊŚѻ,rąŚӭĘĤƆsubĊŐɳĕĈɕĉĀЅĊĀˠCard(lb){if(!lbČğŉĄĆɉows=lb.rows||ĄĴ˞meĄŗ˻ĈĄѣĊąЃĝĒİ共 '+(lb.total||rowĉĎѤ人'})ĄāǾrest=rows;
-if(ĈĀħ>=3ĉķĝĄĄǕrowćœЦ3)));ĆĀŀĄĀĖ3ĄĄ˗pin=!!(lb.me&&!rows.someđīӍĔĀӝlbąčȿ}ěĈ˷ĄąӻreėĬİĈāŭ})ąĠʲinĘćмnote pin'},[lbRow(lb.me,me)])ĞĠƋēą˃道册（ĀŒƱ/ 成就 / 传记）ąĳŽioďąˈbioLoad(ąŒʒ||ąŒʓĐą˔ąĀĬsubĈŒ˄sub;
-čąˢąİˋch'?'ach'ĄĲӃ'life'?'bioĆĀĒcodex'?ĄĀć:ąĀƀĠĖġąŔ˲ĊŘˉvar navėĳǀąĀş'ĀŒѧ],['ach','成就'],[ĄĀƄ,'图鉴'],['life',āŗğŊĳƯĐĀʁēĲӁĉąӺbio'ċĕәąĀʪĎđƂąĀĘĒđƆćĀčbountyąĸǄounty,nav));ďıƕch'ĈĀŇachĄĀĶachĄĀĳĎĭǗodexĉĀĴcodexĄĀĶcodexĊĀĸĎĀǪĖĆǦnav]ćĤļlifeCards(d,mĘĽǤĈĀǬb,navąłǸĜġǮnav]ĈũӺćāюbēĺņĄĝѸb=ćėэğċʂ领ēċʁxĄĹӒĔċɩx.doneĪĔЁunty.claim',{i:xēĢɦİČг
-ąŃэĕČЧąĀӧĉāɟďŃȪbountyČĀĎ.allClaimedĈŔȉĎŔȅin,950ċĿĕċĀŝćļȼĆĀčąĂưĄĐГĉĀĚ,finĄėŞfin(ăŔƛ取'ėāҕtut'+(xĩŘƭxĐŘƭĕĠҊĆČɦxġľ˪xĎĽүĨċűx.cur,x.ĊċŵĜĀŮcurĄċǱx.need+' · 赏 '+xąħğ与一件ĀŧӼ})]),lab]Ćĥѹtail=bĈĀ˥āđį三赏皆结，悟性已 +1。已连续 '+b.sąœǰĀĿƯ:'āŗʶ：Ăŗʷ；Ăŗʷ一只宝匣（还差 '+b.allReward.chestIn+' 日Āħƀ;
-cęŔэnav,ċăă悬ċċӀđė˩ '+b.doneN+'/'+Ąăď+' · ĎĀƷČČčrowsĖĀɗęŘɌtail}ĉĞǈcard}
-// 百科图鉴：物品按类、妖兽一类。纯静态数据，只拉一次。ĉōӐąā҈cxćāЊcxģāЋvar kind=S.cxKind||'pill';ĎćʉąĀˡkbĔĂʎcx.kinčģƪkĘĂɛkind===kĢĂɜąĀơ=k[0]ćāʂĄĂƙ}},kĊĂɭrows;if(ĄĀţ'mon'){rows=cx.mĎĿӫąĘШm=x.m||{};ĘĄɣąĀˏĉŝӲflex-startđĖӖx.id,xĄĖӌicoġĢƩĈĢƜx.tĆĻ˕' ',xĊĻŢxĉĻŢx.bossĝşǑ'头目'ėŔПċāȍĔĝȾĊĉƦ出没：'+(xĄġǫ||'—Ąįɪ血 ×'+(mm.hp||1)+' 攻ąĀđatkĄĀĒ防ąĀĒdefĄĀĒ速ąĀĒspd||1)}),xěļŧĊĀƏ掉落ăĹȉęľȣėľǛ' '+d.ĄĢɒĐŕŐ]ĆĸҦĆĀёitemsĘľŬx.k===kind}ďħѢvar exĄĝȬxĎĝȫx.st)exđĝȫ+'+xĈĝȫx.slot)ex.unshift(SLOTN[x.slot]||ĄĀĠ;if(x.pećĀŖxĉœĹăĜđąœŖ+' · 攻ċĩłx.pet.atkĆňƯ血đĀĠĈňɔĄĀųfxĈĀŲfx)ęĪʡĠāŧĘļЄĴāşĜĔƜ　售ĄčĢx.vğśʇĆāļexġĀҶexċĴѱĊĀѮğāӐČĂǯĀĄǷěĂǯĀĮǡ所录：'+ĆĀҾćĜӮ物品，'+ąāШĆĀĖ种妖兽'}),kbĦĐĕ8px'},ĈąȦ?rows:ěĤА此卷尚空ăčҽĊąПąĄƨaćĂǧaĨăӲtbtns=ĐČҮa.cur?'sm'ıĐʴach.titlĄĤ˴nullċĊӺĆĂƪach'ăĹǏ用称号'ćĄǵa.titleĨŃŞa.ĄŃŠĄĆǍĤĸŉĝĀƻtĎŕ˨ĎĀƻĄĀű)}ğąˑĐĀґĀąƘěĀґ已成 '+aĄĎ˛ / '+aĄăƂ(ĄĀʥ · 当前称号 '+a.curćėӞĈĜǇĀĀɝĖčʮtbtnsĝĲǮĄĀʏąĞė佩戴后显示在顶栏你的名字旁，以及各榜单你那一行。'āĥʻ称号。下面带紫色标签的成就，达成即可佩戴。ĬĚҨxĽĐʶďĚҡĈĄƼgolĉŬ˺ĎĄƧxĤČƣxćĐʘĊĎ˞xĦćœxċćœx.lsęĻОxĈĲƤąĀıwuĔąƃreeĆĨƦāĄŉ'+x.wu}čķĨĉņģĉąɬąĘıdĈţё
-ĈĲ҅ġŝӽname+'传ĨŖɺĀŀҹĐēȬt.fights+' 场，胜 '+st.winĎēȬĆŃңēŖǺĄŃƚsĎŖǿ突破ēĀŵbtĂŗҀ失败 '+st.btFaiĎŖǋĀĮǥęĀŴtribďĀűĀĹбęĀĴcraftďĀĵĒŕҜ(ĉŞħąŞŵĔŕҥĦŝд年谱ěĔӰioĎđѧvar dt=new Date(b.tďņʮĒąȰĈāŒdt.getMonth()+1+'/'+dt.getDate(ąĞӰb.vąČȣĆĀǽhistorĉŞȷĄĀđĕĂѨēĀǹ前世ěčМċĀŚĥŕʐĉăɆcausćĀčagăřȠĄĝҒ:null]}
+ĈĂѮĝĢȡĄĵƟćČǈČĀȞx&&x.msg?x.msg:ĀĀƙ未成，能量与灵石都没有变动'ĆĺЁĉĀǓfalsđĀǔ'}}ōŀǈĈġƼ能量āĀšĝčЈ把āĀʳ供入ĀĺӨ，换成灵石。ĂĀЭ ＝ĄāăĉĀ˄（ĀĬƓ水涨船高）Āħ˳最多 '+e.dailĂĥȸĚčѱĘĠѯ你现有āĀſčĀѰ，今日还可ĂĀіeĄĎĪĎĀŢċĀŔ8ąĭ˄ĀĀɕ ',n,' 点']),out,erĖČȎobĝĭȻěŀǲ算Ăīɣ,vĄĎʥeĄĲəĄĕ˓VIPC=['','#c9ced6','#e2b84a','#7fd3ff','#ff9a3cĊļСĆĲʭlv){lv=lv|0;if(!lvĊīӉęĵѯvipbĆĀɽborder-color:'+VIPC[lv]+';čĀĒ,text:['','白银','黄金','钻石','王者'][lv]ĊĖɡąĀǼv){ĉĊǫćĬŨpctĄļǳ?ĊĴˡĈăȓv.en/v.need*100)):100ďđəēŀӄ;ĄĀǚtop:1px solid var(--line);paddingĉĖĽĘċƯĆāŀ会员 · '+vĎĳŁv.lvĝčȮ累计ĂĀҿv.enĂĮЩ+(v.next?'，再 ĄĀčed-v.enĂĮъ升 '+v.next:'，已至顶')ĵĲҌĖĲҋlistėĆѷv.allĄą˺1)ĘĊˣĐĎǝt.lv<=v.lv?'':'ĄĲǯċĎǊąĀŷin-width:3.5emċĀѽt.ĆĀѿĈĦӘt.enĜĎǨt.perksċĈǂĠĆů等级按āĀʨĀĂƖ升，跨转世永久ĀĭˉĄĆĮćĿĘĈĆǩiĲģƋĢăŰit.max?Ċăũin(it.max,1))Čăƒit.max||1ąĢӃiĘĀŢĊİĊ起拍价（灵石）ĄĀŌĥăƬęĂӧāĆˤŇĂӧmvąĂӨmiąĂӪĄĂӧmvēĂӨ请先填āĀǕ至少 1 āĀǚĆĂʾĞĂњ上拍ĊĂњitem=it.iid?{iĄĉʟid}:đĉсĆĿӃďą˱uction.ĆıȾitem:item,min:mvũĂң没能上拍Āľ˙后ĀĽʽĨĂҞĀĀ˓ŚĂҞ上拍 '+Ćĉө,ĄĀӾĔĂ˟6ĆĂ˟数量 ',n]ěĲĈĆĂЎmiĞĪˍĂćȯ后落槌ĂćȲ。ăćȲ（商人免）。同时ĀĂӦ5 件在拍（与ąāȅ.js 的 MAX_ACTIVE 一致）；卖出的钱一领，位子当场空出来ĂĂҨer,ŔĂѳāŁƠĄŃŦČČҰ淬炼 / 灵田 / 灵兽
+var RN=['炼气',ĀĪǗ',ĀĪǷ','元婴','化神','炼虚','合体','大乘',āĝǂ];var RN10=RNĆĊɣ'仙']ĉĄɼąĈȉĊēЦfloor((a.vĄĝм5*(1+((a.qąĉȴ0.15ąăĚSTN={atkĂĩб,defĂĩЊ,hpĂĩҠ,mpĂĩѹ,spdĂĩ˳,criăĩˊ,ratĂĭƩ',spellăĩʟĉĤďur(ms){msĉĄИąāɏs)||0ąıщĈĂҀms/60000);if(m<6ĆħʝĈĄӱm)+' 分';var hĄĞȦfloor(m/60),mm=m%6ĆħЊhhăĬŘ+(mm?' '+mmĂĀĿ:'ĐēʟĈĈʧiidąąǗČČӵfine.viewĄĈюiĔĕӥ||!xĄĲę!ĆĕҷfinćĿӰ炉子打不开ČćǄS.rflk=ĄăɕfineDrawąĕҊĄĈл
+ČĀƱDraw(dd,ĈĀƴčĂȚvar r=ddĄĀƃĄĜӴęāˣĄĀƐĜą˅ĈħҐutěĚɍĚćɣ{inv:dd.inv}ćĉŪćĀŞbackąĘȆ&&xĄĜСċĀɗĕĀȯ;elseĄĀƠĉĂёfRowąĔвa=r.af[i];ĄĈŉĄĀʈ==iĖĕśģįѸa?(aĆĊɏačĊƹaĉĊƹa.v)):'空槽'}),
+aĐĉȇon?ąćĂ:'smąĐ҇'保值重铸：属性不变，数值只升不降，费用翻倍Ĕĭнrflk=on?null:i;đĀт}},ĀĀŒ'ĈĐӆĚĎӤon?!r.reforge.canLock:ċĀĒĪĳȒfineąĀļćāŦ,slot:i,lock:on?1:0});ĄĀЙ}},a?(on?ĂĀȋ':'ĀĀĄ):'开一槽'ĆĜœrowĐĦѓr.maxAf;i++)rowĄďɢąĀНąĞɢk=(S.rflkĆńҪĆĀĎćŀҷĄĦ˯osĕĦȈąĵʬ铸 '+(lk?ćĀȢlockLs:ĈĀĐĄĆ҈ ·ĒĀīMatĉĀĭmatčĎĝĎĔҔ' 需ąĒЊ（有 '+xĄćұĈĭʓ、')+(lk?' · 保值ĂĀё、ăĀёĄĔʽąĹǒl=h('select');(r.star.candąĖȃĎĺƣ){seĎĸƇoption',{valuećĒɗiid)},čċӍx.q)+' #'+x.iidćĆӣstarĘĊģ升星ğĈųq>=5?'已至五星，无可再升。':'以另一件同名法宝为祭，ĎĨцĄĀǱĆĈɅ，耗 '+ĄĀĔĄĈǧ。失败只毁祭品。每升一星，基础属性 +8%（词缀与符纹不受影响Āĭɖ}),
+ĉĀȺĘĒƬ'},[selĔĳȘċęő!ćĀœĨċų以 #'+sel.value+' ĀĀǶ合炉升星？ęċŚĄāƫstarĈāƨwithIidąăҢĆĀŔ)ĊāƯ'合ĂĈƫ:ĜčȾ里没有第二ĂĀʇąěȭvar sockĊāǌk=0;k<r.maxRn;k++)sockąĚǎuneSock(k)ĊġȝćĀĖ{var rn=r.rnĄōɞ!rąčӐ ęĒɐ◇ ĂāҰĉĂĦĻċ˼剥下'+(STN[rn.st]||rn.st)+ĀČȨ？纹路会碎。ĠĀʐunrunĉāлk:kĊĀɼĒĀŠ +'+(rnčĂƤrnĉĂƥrn.v)+' ×ąňƑbagr=(r.runeĄāǽĦĔʃČđĭ!x.had||rćČл>=ĄĀ˓ěĂŁyđĂŁċĀȂrune:x.idąĀȈyĊĔȧăĕҲĆāɒrunesĘāɓ符纹ĂŃȝĆĀƧ+'/'+ĄĀƪăāѓĔĄŻsocks),bagrěāǯbagrĜāĝ没有符纹。炼器可制，秘境与灵兽也会带回İĜɒīĄвĀĄǠăĉӎĆĆĚčāҦr.qĄĎƻĈĀȯ词缀ĂĀȯĆčʝćĀȯAfăĀȯĔĴĬcost,star,runesĹĶưąĀсshut},'收Ăāɿ])ĊěӻĆįƊf){if(!fċłӦĉĳʦdPick(iĄĀħ.seeĆāӂĆăӤ手Āāʾ种子，坊市有卖，游历战胜也会掉'ďęӜīĆǉŖĀ˚ĂĢөĄĢӧ块田播什么Ęċ҉ąĀǯĤĵƋĈĎѪsČĐɫsċĎєėāǧĘĄŜĎāЇfarm.plant',{i:i,seed:sĎČɎċįŗĉċŬsĔĎӂ,ĈĵǲăāȶsĞēƛs.ăĄ҇后收 '+s.matĕćĘěĝѮŀĈȧċňКtile(p){if(!p.seĆĆЕēĀˀfe onĕĴīdPick(p.iěČѵ空田 '+(p.i+1ĖĘĎ fąŎƵ'点此播种 ▾ĈĂ˹kids=ĊĀʩĄĀƸĖĀʫĖįЊĝćӇ(p.withered?100:p.pctĆĺң];
+ifĈĀĢ)ĤĬƒ已枯萎'ğĴʇğĄȧfarm.clear',{i:p.iąĒɼČĳҤ理')Ĉĳɬp.readyĥĀƭ可收 '+p.matName+(p.hurt?'（受损 '+p.hurtĄŅИ)ěċҳĬĀǙharvestĆĀǛŃęҺĈĀĘ);ĄċҦąęҵĘĚ˂ĐęуĔĒƣăē˝获ĆĀɲ{ĤĀɧ还ĂİӤur(p.left)ćĀɩ · ĈĀɫ:ąļʑif(p.evĥĀˇ⚠ '+p.ev.n+'　ąĲƩp.ev.leftĖĀʺĮĀʶtenděĀҏ处理（ĄĀƊcosĂĀл))}
+ğĂķp.t)},ĄĔĦĄąǏěąŧ手中种子：'+ĜĂƪĎāӊĉĐĻĬěř灵田药圃ĜĘɽ共 '+f.n+' 块 · 筑基、金丹与九宫聚灵阵各开一块'}),ċĂщ?row:ěĀǥĂĂѢ。ĉĂѢİĞƐf.ploĄĎətileĝĉƴ成熟前每小时可能出事，两小时内不理会便受损；受损两次就枯了ĎĉƾćČІ{var pv=d.petćľ҅=pv.pet;
+if(!p)ēē˗ėĀƍ尚无灵兽。ĀĄЫ的兽卵可以孵化——妖兽会掉，灵兽远行也会叼回ăĈč(pv.eggs&&ĄĀĈąăƫ?ĪĂʄąĀļĊĀэeęĄǣąąƠİēŵeĎĂҰŖĔȕ}},'孵化 '+ąĢӞ（'+e.peăāơąė˔]);ďćжlćĜĕőĀƙĄĬӼpĉĈī(p.hpPĆĜďĄĭĠeaďĴ˫ĕĞȽ(p.mon||''),p.nameĎĞȼďĖʏċĂџ ĄĀĘąēӦp.eggTier||0ąĀŔ+'　'+pąıȑ+['','　化形','　仙形'][p.ev||0]ĠĒƣpąďѠ攻击ĄČęp.atkăĎɠĀĹɶąĀēhpĕĊҴęĽӑhppĶĽѽ(pv.maxąăĦct(p.xp,p.need)ėĽӕĊāǃĂĀǁhpp+'% · 历练 ĉĀŗ'圆满':p.ĄğӚĄĀŘąĽмĄĬӝpĄĂȔtrip)trĉĭɭĎąƾ远行ķķыp.tripĄğӀNćęѥ(ĆĀĘady?'已归来':'ćĂɪtriĄĂ˛ĔĂɭďĆˈĉĀŐĨāȾpet.collecĕĽǩŻăĹreloadăăĩ取ĄĸĠćĦʀĎćɝpvąĠȬĔćɛrg){if(rg.open)ğćɧrg.id},rgĈĠȁg.name))});
+ĞĀм（ăěŃpv.tripąĲƕ次ĘąӶ[selĆąˡ(pv.hours||[4,8,12čĆȴhhĦĆȵĉĀƄ<=0||p.hpP<0.3ĬĀвsendćĠɕĆćƵ,hours:hhčĐгload()}},ąĉѥ)})ĝĂж远行期间不随你出战āĹʹ足三成不能远行。回来带āĹȊ尔有兽卵或奇遇ąĂмvar feedĘĀʈ喂养ąĂ˘feed&&ĄĀĈĚĂ˘},ąĀĥċēɮdĝĀɰīĀɌfeedąċɲfdĐđӆĆĀȽfĄĞӱ' +'+fd.xp)})ěĆ˸ćāЖ它已至二十级，历练圆满，再喂无益。'āŊɣ与含修为的丹药都能喂ĉćгlack=(p.evoCostĝāƯz.have<z.nĆČƝvoLb=p.canEvolve?'ĀĂǉ:(p.lv<p.evoLvāĀĒ（需ĄĄŬoLĂĂǶ）':lćĕǼĂĀġ缺 '+lackċĀʄĉĀżname+'×'+(z.n-z.haveĊēӘăĄѵĀĀƀćĀƝĬģʽąĀƲĤāҋĆĀǶĨćӌ让ćĵȈ化形？ĀĢšĄĀȘCočđȹĒĀǻzċĄƏĘćӸpet.evolve',{ĖĀѫevoLbĘĉӗĎĚ҇ģĀӬreleaseĢĂŬconfirmďĀȫx.msgċĀǡyėĀŨĄĀņ:'1ĄĖɾy&&yĉĀǭĐĂƷ,ĊĂǪ}},'放ĂļƆďĄˤ},[head,trip,feed,evo,ĈĀЯėāˡ化形材料：ĨĀ˥ '+zćđлČĀ˰+āăȫ后āĸӳ1.3ćěƶĎČŵmarketĄęĩmarketĠęĬshopģęĭMarketĆęǀĎęĨĄĀğdĊģПvar re=d.shopRe||{left:0,cost:0ĄĸАreĔĹ˴Čĉ˓e.left||m.ls<re.coąĒʻ:ĄĀě?'换一批货，已买过的不会重复出现'āĝ˫补货次数已用尽ĩĀӒshop.refreshđľƚĄĀǭėĒč)}},ĆĀƔ补货 ◆'+ĄĀƱ+'（余 '+rĆďђĀĂгāĀƥ已补ĆĹЖęĀȏĨĕǗnergyĈĀƽĊċвenergy)ĈđˇĊĀĘĄċȃĂĐƼĆŏȧopĤĹŇĀŅѕĶđҭ每日换货 · 商队每日可请三次ĝđҸ囊中 ĊđһĞłȈĄĂĄbottomĆģʭeBtn,eēĸŵĄĈǯd.shopĶĈǮsĄĀЌēēǷsĔėŗsčėŗsĲėŗsĆėŗKINDN[s.k]||s.k}),s.ćľŲęĽʻĖĘ҈ sbĘĖɇđĀʼ ĈĄɋĂĒɺs.pricăĄɆ余 '+s.leftĥēȁsĉāȘĄĀŊĨāĨbuy',{idx:s.idx}ĵāǯ'买'ćĤĭ;
+var a=d.ĄĎƲs||{open:[],mine:[],ended:[ĊĳĭitemAttrćďˤĄĢҋit.stċŘȘit.st)o.push(ċėʋ'+itĄėɤĄĀļaf)it.afďĄȽf){ąĀŃf.n||ĆėŮ||fĈĊЗğėŵĄĘӋit.rns&&it.rnĆĆɤĄĀŢăėǭĄĀĚĔĂșSTN[z]||zĊĂӺĆĵ˝ąăɆoĉĐŨ:(ĄęЭčĳǀitemName(ićĐȿąę҈(it.nĆőŪ:'')+(itĄĠʮitĊĠʯit.rnąĀĘrn+'纹ĄĈǳĈĨĂeft(ĆŌѕĊĎǺend-(S.me.now||ćĭʾćĀǗs>3600000ĉĀɣs/ĄĀĔ)ăĄɡ:čēǼąĀĦ60000)ăĎȜĄŖƮsc=ċĘǍescrow||{}).reducĈŐИt,ćĘǖt+ąēƺąĀĳ[k])||0)},ĄĎʷaucĤĂČĀĖЍķĂč出价托管ĀĹǩ落槌由天道裁定，回来即自动结算ĭĂĔ+(esc?'　托管ĆĀėesc)ąĹӔČĊҨĀďɨ'+(a.openTotal||a.opeąċǨ)ĊĀĜ>ĊĀě?'，先列最先落槌的 '+ĊĀę+' 件':ĄŎфėğ˥ċĀōĄĀčħğˣĘķ˾ ąĆӅČġ˄temċġˉąĆӌĄĀět||0ČĸшĆāŒx.itemąĕǠx.sellerĆāӆleft(x.endĝĚӧĄā˳ĄĀŏ})]ĒĞŝĖŅžĆĀ˺(x.top?'现价 '+x.top.amtāđŬ '+x.min)+' '}),x.myBidēŅɑ'+(x.top&&ĆĀŃ>ąĀİ'red':'goldĆĨˍ我出 '+ĄĀĠęĀĺ · 已被超':' · 领先ĊĘҚĲĉдamtĉĚӔ出价（不低于ĆĀƽ?Math.ceil(ĆĀƋ*1.05):ąĀȊ）ĆĚӖģĀıēĚӷamtĕĺǟĆđƃbid',{aid:x.aid,amtąčȞamtČŀҍĝĂɵrĈĂɵ出价ąĂɶěĉĥ空空如也。去ĀĈТ把东西挂上ĂĈБ),a.mineĈČʆĈāȇ我的拍品'ĕęȼĆāƮmineģĸȴĔāĵ(x.settled?ćĀĊ.winner?'成交ĄāŘttledąăĦ（ĉĀēwnamĂĎ˅:'流拍'):x.ĄŁӟĀđō等待裁定'āā˒čāƏąĀТ' čāĪ 无人āĀɒ)+(x.claimed?' ✓ĄĊ˟})),a.endĆĆɤČĀȵ已落槌（我参与的）ğĀȺendeğġǀĥĀȻĆĀӇċĀɂĈġǦmĄġǣ你拍得ďĀɔ:'他人đĀė):'ĂĀɄ)}ĉăǘwon=[];(ĄĀǄėĎӲifćĀƑ&&ĆĀɑ&&ĥĀƮ&&!S.ĄśҌ[x.aid]){čĀđ=1;won.pushĆāуĄĒǎwonĢĥɊwon)},12ąĉŊvs=d.vshop;var vcarĈŐșs){vcĜĽјĔēәĈĂК珍宝阁'Ċēӑs.lvđĄˀćĂБvs.lv?ĀĔĔ专属货架ĀĕĂ更新，贵一些但保证有货':ĀĔȩ会员（ąēӳs.unlockAtăĕн）起开放ĂĊćvs.stoćĆҎĔĄ˰ĆĀĦŇĄ˲ɪĄ˗vshop.ŐĄ˝ĚĂŧĄĀҠ今日货已售罄。':'在坊市点「āąш」即可开始累计ąĈǝċėЌąēɍ,shop,vcard,aucĐĆ˩arena + bossĄĆ˯arenaĠĆˮĄŋˢěĆ˯var bċņЯsđğǥrenderArenaĄĆЖ.arena,b?bĄĦȄoss:null,'arđğѝArena(a,boss,sub,wxĔĪɟarďĪɟĄĻĴćĪɝąĀĐćĪɛarăŋӐ],['wx','棋局ęĪɛwx')wxĉĪɛif(a)ĐĀƬ'ar'ĊĪɾarenaĎĪɼwxĆĪɼWuxąŜџ,wxĬģƢĈāг论ğņ˞余 '+aĆĆўĞŃƿĀłҾ '+mąĻѤaăăҿāłӐĉĀĖssĄĂɳĆĀđw+' 胜ĉĀĐl+' 负 · 点到为止，不伤根基ĚĄǧĩĽҝĝĊʖ},[p.nēĝȝćĐʩRN10[p.r]}),p.paĖăӻp.pa==='xie'ąăӯblueąăӯPATHN[p.pa]ĈĂӤĘĖƆćň˷p.pwăĂҽĀĻл'+p.arėļįČāАaģĤ҂rĎāǲ.fight',{uid:p.uēēʱrĈĈʥrĐĊВrđĤ҅ĄĨțĔħ˴ĈĀĸċāȰrĊāȰossĄčзĀĀӝľďėđĈĽaąćӍıĀȽĊĈĈċĄƢĖĀǍ},āĈƋĂćӪĆĀŀĂČɇćļ˚boąĻɨw=bossĄĽšĭāȐĀļЯĚāȐĊļҟ（Ċļҽ）Ăīй余 '+bossĚāȱĕČɄėĽŀĜŀǝĄĀĮdesc+' 伤害按自身境界折算威能，全服同榜。次日登录ĄńȻĘŉӑčĘǕĆĕɱęĆĝ我的Ăĳăfmt(boss.mineĥċҐĆĀȧīĀчboss.attackĔĂɾũāżaĄąĿ.ĈāŸ出手ĒįҼĄāҭbossĄĥѯĆşЈ0ČċʰbċħɒėĥѽbČĥѽmĲĥѺćĐĽĖČʦbĝĥѷfmt(b.d)ĉĿ˿if(a.standings&&ĈĀČĵĽѹĀŉďĜĂʳĀĂċ· 前 20 名ĚĂȳćĀƊħĂȸćĀɸpĵĀɸ+(p.rank<=3?' r'+p.rankćĮӎĆĀŠġĦȎp.n+(p.paĂćьĈĂɋċĐŅĕĀʴp.ssăć˥ġĘŚ赛季末前十名获能量奖励（5/3/1），前百名获ĀēҜąľӨĚģɽāŅе
+var WXN=['金ĂŞʆ,'木ĂŞʃ,'土']ĎĎȍąăɀďăѾwxģĊɫArena(nullĄħǑwx',ĄăѢwxĉĈŰwxDraw(ĆńӝĒĀĹĊĖİwxTile(v,iĆľƗS.wxĎĢȢid:'wx'+iĄşɷ'wxt e'+v+(st.sel===i?' selĈį˖WXN[v]đđȞwxTap(i)}}ČĀƍap(ČĀƊvar d=st.dĄĶф.mode==='d'&&dąāѾĆĒɡĀĊȻ交卷，可先练习'ďĪʥĆĀƬnull||ĆĀĎĈīŸćĀǏ){ĄĀċĈĀǢĄĕХĆĀɩĊŎɎaĄĀĩ,ar=(a/6)|0,ac=a%6,br=(i/6)|0,bc=i%6;
+ĉŠʕar-br)+ćĀďc-bc)!==1ĆĀƄđĀŴąĀȏvĆĩȐ>=d.movesĆĀȏ步数已尽čĀȉąĬрwxSim(st.seed,ĆĀŊąēŪ[ar,ac,br,bc]ąĂҧ!res.okĆĀƗćņƻ0=$('wx'+a);if(e0)e0đŏŵelĄĒʡe1ąĀıi);if(e1){e1ĐĀĲbadąİʆe1ĊİʅĊĀĮaddĄĀīĄċӥ'这一步不成连珠čĀǿąĀǩ=ĝĀǲ;ĉĀǤ
+var fĈĀǥ,fČĀǀf0)f0ĎŜȀlrĄł˲1)f1ēĀĝ
+ēĆʌĆĀ˱},280ďĩʮĉĄхąŖƼĈĩʟwxĘĩʟdėĩʟ!S.wx||S.wx.day!==d.day)S.wx={day:d.day,seed:d.seed,moves:[],selĄŁįode:'d',d:d};
+S.wx.d=d;čāǜėĀ҈Ąıŋone=ĆāǧįĨшāāҴ'+ĉāȸp'?'（练习盘ĆĂş
+ĘĂʌĀŇЗ生ĀŇГ生ĀŇЏğěҸĈŇё以上相生或同气即ĀĀѾ：相生 10×长²，同气 4āĀć连锁一次多算五成。āĀҝ的交换无效ĖĩˡįĆɷĉĨцČāȞ+'/'+Ąāȡ+' 步'ğăđres.scoreĄĊŌĝěţ连珠 '+res.chainăąȦ最长ĄĀēmĄŎƛĎĀǨwxg'},resĈĩǇwxTile)ĭĩӸ[
+ĊĂģĔčӍĈăӅdone||!ČĀȪĚčӔČĀī<ĄĀɒ&&ċčӭ还ĂŊҤĄĀĜ-ČĀĴ)+'Āİĺ就此交卷？ęĦɾwx.submit',{moves:ąĀŇőĬȖĆĬьąĆ˄wxresĆŇкwxres.drops)Ħďӟ;S.wxĆĈĬĥĬѦĝĂӶČĪǻĝĀĮ},done?ăĂО':'ĀĀĄĜĘǏĒĘȭĐāЀċĀѭ('wxp:'+ĈċǒĜāТċĀĿ'p'ćāдćāӿ},ČĀĦĀāʾ':'回到今日ĖħȚĊćмċĀѻ&&ĊĀŎıĀǫpĸĀǫĚĀǝp'āčҸ盘':'重来')]),
+d.mineĲĪҕĂĀˮĄąǞd.mine.scăāˉ+(d.rank?'，第 '+d.rank+' 名ĄĂĕ:İĀůfmt(d.tiers[0]ĂĀŧ起给ĀċʱąĀƀtiers[1ăĀę加ĀĐǤċĀĘ2ăĀĘ另赠悟性ĆĄƐĭĂǮ今日棋榜Ěł˙Ċīķdǈīķfmt(xĆĀ˞ġīĸĀĞǑĀīĸ落子ēīķĎĄ˾secąďœsecĢďőėđѲČĄ˥SecĘďŏSecđďōĉĈǿsectĉĈǾsect'ĄĈſd.secĄčɀs=d.sectĄņăLeader=s.myRole==='掌门'ĭĆѶĖŋ˱ćăňs.level+' 级 · '+s.memberCount+' 人'ğŋаesc||'（无宗旨）ĤŌпĀĀǋďńɝs.leaderNĆĀƳbćċǦĒĀįmyRolăĉʸ贡献 '+s.myPtsčĀļ宗门加持đŅĮĀģā+'+s.buffđńӠ入门要求ĐĀķRN[s.req]+'以上'ĥĎӋĝćЇįČň捐献Āğɨ1āŋʤ = 1ĀĀȁ）','100'įċӿsect.donate',{ĠċӵSecĞċӳ捐献'),s.wage&&s.wage.lv>0?ğĘѠĄĀĭtakenĨćǁsect.wageđĈąĠĀƲĉĀŶ?'俸禄已领':'领俸禄 '+ĄĀĚamounĄŊт,!ąāƧ?ŅĪă退出宗门？贡献清零，一日内各宗不收。Ęņҕ'sectĄĪĄĎņ҅secĄĢū退出ĈĤѕąĴğsbossĮćģ宗门试炼ěćĤĄĀřĊŅŭ·āŌɪ2Ġĉˣ伤害计入ĀŌɟ全宗周ĂŐŮ,ĵĕƤďĀȤĔĊȝšćӓĈĀʌĆćӃĬğɮćĀɔĉćӛ1ĭćӛŹćҲ;
+if(s.costıĀѶ建设Ĝćқ库藏ąŒʲ.treasury)+'āĂĕ· 已用ĆĀěspenĒŏҕĄăƆĄĀơĎŉś
+ķĊǲĉĂőbąĂʏğħС●āĀĀćęҬb.lv)+'○āĀĀĉĀĕmax-b.lvĝİʲbĆĤʩ,
+b.costĄćŭĞœӧ'āĠɠ}đĦӆs.canBuild&&ćĀɶ>=b.costČĝĂĉČİąĀĶ||ćĀĶ<b.costĨāЫ动用 '+bĄđҮ 库藏，把'+bĄāɳ修到 '+(b.lv+1)+' 级ęň˝ĄāȢuild',{b:b.kąāț||!ĄĂŁĈłūğăɈěĂŰ(f&&f.data)||ĉĂȰ升级ĆĀǑĠĈȵćĀɇ?Āăŏ与长老可动用库藏。Āāĉ= 全宗ĀĀӹ-ĀĀӹ。'āāě由ĂĀğ支配。你的每一次捐献都算ĀįӽĆĄǊif(s.wkĮāƖāŎǵĜāƖăČюwkĊŇȔ · 达成几条，下周一并发赏ČōŁ[['don'āĂн贡献'],['sb','试炼Āāз],['awĂČĬ胜场ĎīќgĄľӂur=s.wk.cur[gĄņǆ,need=s.wk.goalsąĀĘ1Ĝġиćğьġāǹtext:g[1]ğāНcurąĽʦfmt(ĆĖȧıġ˄(cur,ĄŔȀĄę˳ĞĀм(s.last?'上周达成 '+s.lastąŋ˽3ăŊɋ+ĀĀĝ出过力的人ĀŎӠ登录时自动ąĊ˨İĄӿ门人ĘĄӽąĄŴsňČŪėČĶrćĄɐ?'gold':ćĀĔ长老'?'ĄŕʫćĉĲp.role}),ĖČǀĉĀɜĆČǂ+'ĉŔэćČŕĂĄƬp.pts})]),ąăɆĆĎѯp.uid)!čĊăĊĐ˞ċĀƲħĆȬmg('dismiss',p.uid)}},'免ĀĀŅĔĨҫĖĀņappointĉĀņ任āĀņıĨљĉāә传位给 '+p.n+'？'))mg('transferĉĀū传位ĕĀŪĢăѹĉĀű逐出čĀŰbanĉĀū逐出ĆřǌĊĂӒąĀʺĮāм掌门事务ĘĖ҆ıĔŘrĉĄМ入门最低境界（0 炼气 … 8 渡劫ćĐхs.reqēĐХrĄğĸ)mg('setReq',null,{reqąĄЕrĄăˋĂąĠĳĚƒĊĄӉ宗旨（80 字内）',ĆąɎĄĉģČĀƏDescąĀƐdesc:t})}},'改宗旨ņĀЌ解散ĀĄʄ不可恢复。ĄĀЋdisband')}},ĀĀĝĆČОČĊѓmg(action,uid,extrĄĨǲpčĦґaction:action},uidĆğʯuidĊŤə{uid:uid}:{},extraćŠ˫ďĂӄmanage',pĖĄЏćėӀĚœĂ宗门名đŔʌ}),descėĀĶ旨（可空ċĀĲ0})Įčĭ你是ĀōҺĝĄЭ加入宗门可获ĀőƆ持与āĄҗ；金丹之āőƷ'+dąăȓăőƽĂĄъm.r>=2?Ğķ˗[nameĎĢȪĄņЂ6px'ĄĀȁ,ħňƀ6pxĊĸɇls<dĜă˫ēĀ˜ĜŔɟ,desc:desc.valąĄӟēąȓāĀȗĈāːįİĆ'诸宗ĚćˍĉĵĜdĐĎхsĹĂ˚sĘĬŦċăСēĆӛs+' 人 · 掌门ĄĐǭąĆѵ+' · ăĸћs.req]ĥĆӻ'})]),!m.sectĶĭӒďĀ˲join',{sid:s.sđŌѭćĀ˓拜入ĈŒсěćѠ天下尚无ĀŒǎ第一个开宗Āăǝ会被记住ĤćѫleaderboardąĐǗlbďćѱlbLoad(ĄŘҳ)}ĎāЫĄĀĠtypeĐćҟlbąĆӃtypeĞĐȈĉćѯlběĨƮēįӯĄřś'境界ĎŊЬċŜŴ],['season',ĀČҶ'],['wealth','财富ČŜƐ],['xian','仙籍Īİč(ĄťǉćİďĄăґĔăƎąĀɏČįТčŖʱ.lb)];ċĀˡvar LBSEAL=['','壹','貳','叁ĊĦɤlbVaĉţƂąţӢ.vĉťɯfmt(r.v)ąĆŌr.vĄŜƣop three as an ink-mountain podium: first centred and raised inside a gold ring, second 青玉, third 赤铜ĈŜƵpodium(toĄŨпđťʵpodiumċĨȭgate(x,top,w,hh,col,lit,glypĄĿӟl=x-w/2,r=x+w/2,b=top+hhąčƝĈşҐ'+(l-7)+' '+(top+12)+' LąŠƕ(top-7ĄĀĒ(r+ĎĀĪĆŞȷ'+col+'ČŝҗĉşȲ'+(l-4ĉĀŀ0ďĀū2ćĀūĎĀĪēŚȞ'+lit+'ĒŞʀrect x="'+l+'" y="ċĀŏĄĀī'+w+'" ĄŬĐ"'+(hh-ĊĀŲ#0d152ĈŠƩĆĀǮčŝѬ4ċĀŷ(l+5)ČĀŻ5ċĀŻ(wąĀūċĀƀ2ęĀǳċĀŽĈŞМ5Ďśƃ7ĎĀʅ+5ĈĀɚ44)+' H'+(r-5)ćĀŔęĀťčŝӂ'+x+'" cćĀǤ30)+'" r="12čĀТıĀĻħĀ˳texĄĀɻxċĀɷ35)+'" font-family="STKaiti,KaiTi,serifĄĀġsizeĉşҼ#1d1607" text-anchor="middle">'+glyph+'</textħĀǠ7ģĀǠćĀɺ4đśǝ2 4"/>'}
+boxěŜǞ360 170ĒŜǠ<defs>ċŢĩcl" x="-20%" y="-60%ĆĀһ140%ćĀҵ220%"><feGaussianBlur stdDeviation="5ĉšӢēŢ˨ltŎŢ˨6ĥŢȼġŢ˧ąŢƔČŜħ18ąŞӆ6" r="54čŠőtĆŜ˩Ĉšӊ170 L30 136 L62 122 L96 140 L130 17ĈšӔ131d2ċšȋ23ĄĀń262 142 L300 126 L330 146 LĄĀ˴ĚĀŇ96 170 L136 126 L158ĄĀƅ80 100 L206 136 L228 146 L266ČĀŘa2633ąĀǧgčŠˏclĊŠɔ6"ĈŠȟĈşȉ151" rx="62" ry="Ćāĥ#3a4a5a"/ċĀĸ30ĵĀĹĆĀʶĆĀĹ70" ry="6ĐĀĹ/g>'+
+gate(60,50,74,98,'#5fa37a','#bfe6c8ĂĂҡ)+gate(300,60,74,88,'#c2734a','#f2c29aĂĂӈĄĀĪ180,20,76,128,Ćņѱ,Ćņ҅,'壹')+
+'ĆŜʔvar podsđĂлs'});
+[[1,'p2'],[0,'p1'],[2,'p3']]Ēĕɫvar r=top[x[0]ĄŜǺpm=[ąăš===ĄļӘ?null:ĄĀČ,r.pa?PATHN[r.pa]:null,r.titleĆœЊBooleanĊİҡ;
+podsěĢƆod '+x[1]ĒėӫlĄĄĹLBSEAL[r.rank]||ĆăǦĈČĩċĀŗnąĥ˽r.nĆĬӿ}),pmĎČиpv pĆĥЬpmĄćŹmĕĖơpąĶƁąĀȸĆŞҽčŨʑpoĈűĲboxĉĘЌbRow(r,meĜČɜmeĆćƝrčđơĦČɞ+ĄĀȩĆđƢrēđƢrĜČɹ},[rĄćʈąĀЪĚąĈĄĀĤąĀɉręēіrĢēіrĉēіrĦŝǷrĊŝǷ,rąŝɩĘĥǱsubĊŒүĕĈɕĉĀЅĊĀˠCard(lb){if(!lbČĠƴĄĆɉows=lb.rows||ĄķĚmeĄŚķĈĄѣĊąЃĝĒİ共 '+(lb.total||rowĉĎѤ人'})ĄāǾrest=rows;
+if(ĈĀħ>=3ĉĹəĄĄǕrowćŖŢ3)));ĆĀŀĄĀĖ3ĄĄ˗pin=!!(lb.me&&!rows.someđĮȉĔĀӝlbąčȿ}ěĈ˷ĄąӻreėĮɬĈāŭ})ąġНinĘćмnote pin'},[lbRow(lb.me,me)])ĞġǶēą˃道册（ĀŔ˭/ 成就 / 传记）ąĵʹioďąˈbioLoad(ąŔӎ||ąŔӏĐą˔ąĀĬsubĈŕĀsubĄėƬĈąˢąĳćch'?'ach'Ąĵǿ'life'?'bioĆĀĒcodex'?ĄĀć:ąĀƀĠĖġąŗĮĊśąvar navėĵ˼ąĀş'Āŕƣ],['ach','成就'],[ĄĀƄ,'图鉴'],['life',āřɛŊĵ˫ĐĀʁēĵǽĉąӺbio'ċĕәąĀʪĎđƂąĀĘĒđƆćĀčbountyąĺЀounty,nav));ďĳˑch'ĈĀŇachĄĀĶachĄĀĳĎįГodexĉĀĴcodexĄĀĶcodexĊĀĸĎĀǪĖĆǦnav]ćĥƧlifeCards(d,mĘĿРĈĀǬb,naĄĬƣbĕĤũĊĀŬćŬɶćāюbēļʂĄĞӣb=ćĘҸğċʂ领ēċʁxĄļȎĔċɩx.doneĪĔЁunty.claim',{i:xēģˑİČг
+ąņƉĕČЧąĀӧĉāɟďŅѦbountyČĀĎ.allClaimedĈŖхĎŖсin,950ċŁɑċĀŝćľѸĆĀčąĂưĄĐГĉĀĚ,finĄėŞfin(ăŖ˗取'ėāҕtut'+(xĩŚ˩xĐŚ˩ĕġӵĆČɦxġŁĦxĎŀǫĨċűx.cur,x.ĊċŵĜĀŮcurĄċǱx.need+' · 赏 '+xąĨƊ与一件ĀŪɸ})]),lab]ĆĦӤtail=bĈĀ˥āđį三赏皆结，悟性已 +1。已连续 '+b.sąŕЬĀŁ˫:'āřӲ：Ăřӳ；Ăřӳ一只宝匣（还差 '+b.allReward.chestIn+' 日ĀĨǫ;
+ĚęȰnav,ċăă悬ċċӀđė˩ '+b.doneN+'/'+Ąăď+' · ĎĀƷČČčrowsĖĀɗęŚ҈tail}ĉğȳcard}
+// 百科图鉴：物品按类、妖兽一类。纯静态数据，只拉一次。ĉŐȌąā҈cxćāЊcxģāЋvar kind=S.cxKind||'pill';ĎćʉąĀˡkbĔĂʎcx.kinčĤȕkĘĂɛkind===kĢĂɜąĀơ=k[0]ćāʂĄĂƙ}},kĊĂɭrows;if(ĄĀţ'mon'){rows=cx.mĎłȧąĘШm=x.m||{};ĘĄɣąĀˏĉŠȮflex-startđĖӖx.id,xĄĖӌicoġģȔĈģȇx.tĆľđ' ',xĊĽʞxĉĽʞx.bossĝšэ'头目'ėŗśċāȍĔęӑĊĉƦ出没：'+(xĄĢɖ||'—ĄıҦ血 ×'+(mm.hp||1)+' 攻ąĀđatkĄĀĒ防ąĀĒdefĄĀĒ速ąĀĒspd||1)}),xěľʣĊĀƏ掉落ăĻхęŀџėŀЗ' '+d.ĄģʽĐŗʌ]ĆĻǢĆĀёitemsĘŀʨx.k===kind}ďĨӍvar exĄĞʗxĎĞʖx.st)exđĞʖ+'+xĈĞʖx.slot)ex.unshift(SLOTN[x.slot]||ĄĀĠ;if(x.pećĀŖxĉŕɵăĝżąŕʒ+' · 攻ċĪƭx.pet.atkĆŊ˫血đĀĠĈŊҐĄĀųfxĈĀŲfx)ęīЌĠāŧĘĿŀĴāşĜĔƜ　售ĄčĢx.vğŝӃĆāļexġĀҶexċĮӪĊĀѮğāӐČĂǯĀĄǷěĂǯĀİН所录：'+ĆĀҾćĞř物品，'+ąāШĆĀĖ种妖兽'}),kbĦĐĕ8px'},ĈąȦ?rows:ěĥѻ此卷尚空ăčҽċįƱĄĄƨaćĂǧaĨăӲtbtns=ĐČҮa.cur?'sm'ıĐʴach.titlĄĥџnullċĊӺĆĂƪach'ăĻЋ用称号'ćĄǵa.titleĨŅʚa.ĄŅʜĄĆǍĤĺʅĝĀƻtĎŘĤĎĀƻĄĀű)}ğąˑĐĀґĀąƘěĀґ已成 '+aĄĎ˛ / '+aĄăƂ(ĄĀʥ · 当前称号 '+a.curćėӞĈĝȲĀĀɝĖčʮtbtnsĝĴЪĄĀʏąğƂ佩戴后显示在顶栏你的名字旁，以及各榜单你那一行。'āĦЦ称号。下面带紫色标签的成就，达成即可佩戴。ĬĚҨxĽĐʶďĚҡĈĄƼgolĉůŶĎĄƧxĤČƣxćĐʘĊĎ˞xĦćœxċćœx.lsęľŚxĈĴˠąĀıwuĔąƃreeĆĩȑāĄŉ'+x.wu}čĹɤĉňɟĉąɬąĘıdĈŦǍ
+ĈĵǁġŠȹname+'传ĨŘҶĀŃǵĐēȬt.fights+' 场，胜 '+st.winĎēȬĆņǟēŘжĄŅ˖sĎŘл突破ēĀŵbtĂŚƼ失败 '+st.btFaiĎŘЇĀįɐęĀŴtribďĀűĀļŭęĀĴcraftďĀĵĒŘǘ(ĉŠɣąŠʱĔŘǡĦŠŰ年谱ěĔӰioĎđѧvar dt=new Date(b.tďňӪĒąȰĈāŒdt.getMonth()+1+'/'+dt.getDate(ąĠśb.vąČȣĆĀǽhistorĉŠѳĄĀđĕĂѨēĀǹ前世ěčМċĀŚĥŗӌĉăɆcausćĀčagăśќĄĞӽ:null]}
 
 boot();
 })();
@@ -4710,7 +4811,7 @@ function regionArt(regionId){return img("region_"+regionId,360,120,regionId,"cov
 // ---- lib/ui/blocks.js
 const TABS=[["home","洞府"],["explore","游历"],["bag","行囊"],["market","坊市"],["arena","论道"],["sect","宗门"],["lb","榜单"],["bio","道册"]];
 const TAB_METHOD={home:"home",explore:"regions",bag:"bag",market:"shop",arena:"arena",sect:"sect",lb:"lb",bio:"bio"};
-const PRIMARY={"trib.step":"act",path:"id",sub:"id",explore:"region",choose:"opt",use:"id",equip:"iid",unequip:"slot",sellArt:"iid",gongfa:"id",craft:"id",buy:"idx","arena.fight":"uid","sect.join":"sid","auction.bid":"aid",sell:"id","arts.toggle":"id","sect.view":"sid","auction.create":"id","auction.createArt":"iid","refine.view":"iid","refine.star":"iid","farm.tend":"i","farm.harvest":"i","farm.clear":"i","pet.feed":"item","bounty.claim":"i","ach.title":"id","sect.build":"b","dg.enter":"diff","dg.pick":"i","dg.use":"id"};
+const PRIMARY={"trib.step":"act",path:"id",sub:"id",explore:"region",choose:"opt",use:"id",equip:"iid",unequip:"slot",sellArt:"iid",gongfa:"id",craft:"id",buy:"idx","arena.fight":"uid","sect.join":"sid","auction.bid":"aid",sell:"id","arts.toggle":"id","sect.view":"sid","auction.create":"id","auction.createArt":"iid","refine.view":"iid","refine.star":"iid","farm.tend":"i","farm.harvest":"i","farm.clear":"i","pet.feed":"item","bounty.claim":"i","ach.title":"id","sect.build":"b","dg.enter":"diff","dg.pick":"i","dg.use":"id","vshop.buy":"idx"};
 const REALM_SHORT=["炼气","筑基","金丹","元婴","化神","炼虚","合体","大乘","渡劫","仙"];
 
 const DBF_N={qi:["走火入魔","修炼 ×0.5"],injury:["重伤","气血/攻防 ×0.7，修炼 ×0.6"],heart:["心魔","灵力 ×0.7，暴击 −3%，修炼 ×0.75，突破 −10%"]};
@@ -5057,6 +5158,11 @@ const sub=ui.sub||"shop";
 const out=[sc_subnav(ui,[["shop","坊市"],["auction","拍卖行"]])];
 if(sub==="shop"){
 out.push(muted("每日换货。"));
+const vs=d.vshop;
+if(vs&&vs.lv){
+out.push(h4(`珍宝阁 · ${vs.name}会员`));
+for(const s of vs.stock)out.push(H([itemArt(s.id),B(`${s.name} 💎${s.price}（余 ${s.left}）`,"do:vshop.buy:"+s.idx,{variant:"primary",disabled:!s.left||me.ls<s.price})]));
+}else if(vs)out.push(muted(`珍宝阁：白银会员（累计供奉 ${vs.unlockAt} 点能量）起开放。`));
 for(const s of d.shop??[])out.push(H([itemArt(s.id),B(`${s.name} 💎${s.price}（余 ${s.left}）`,"do:buy:"+s.idx,{variant:"primary",disabled:!s.left||me.ls<s.price}),muted(`${KINDN[s.k] ?? "法宝"} · ${s.desc}`)]));
 }else{
 const a=d.auctions??{open:[],mine:[],ended:[]};
@@ -5587,7 +5693,7 @@ const d=DG_DIFFS[Number(diff)|0];
 if(!d||Number(diff)!==d.id)return{ok:false,msg:"无此秘境"};
 if(c.r<d.realm)return{ok:false,msg:"境界不足，此境凶险"};
 if((c.hpP??1)<0.5)return{ok:false,msg:"气血不足五成，先疗伤再进"};
-const limit=DG_ENTRIES+(c.sub==="tan"?1:0);
+const limit=DG_ENTRIES+(c.sub==="tan"?1:0)+((c.vip|0)>=3?1:0);
 if((c.daily.dg??0)>=limit)return{ok:false,msg:"今日入秘境的次数已尽"};
 c.daily.dg=(c.daily.dg??0)+1;
 const sd=String(hashStr(`${c.uid}:${c.sk ?? ""}:${now}:${c.ac}`));
@@ -5777,7 +5883,7 @@ const e=DG_EVENTS[p.e];
 return{t:"ev",text:e?.t??"",o:(e?.o??[]).map((x)=>({l:x.l}))};
 }
 function dungeonView(c,shared,now){
-const limit=DG_ENTRIES+(c.sub==="tan"?1:0);
+const limit=DG_ENTRIES+(c.sub==="tan"?1:0)+((c.vip|0)>=3?1:0);
 const wk=weekKey(now);
 const v={
 left:Math.max(0,limit-(c.daily.dg??0)),limit,
@@ -6342,7 +6448,7 @@ c.daily.bs??={...c.stats};
 
 
 c.daily.br??=bnBracket(c.r);
-c.daily.bo??=makeRng(`bounty:${dayKey(now)}:${c.daily.br}`).shuffle(bnPoolFor(c).map((t)=>t.id)).slice(0,BN_TOTAL);
+c.daily.bo??=makeRng(`bounty:${dayKey(now)}:${c.daily.br}`).shuffle(bnPoolFor(c).map((t)=>t.id)).slice(0,BN_TOTAL+((c.vip|0)>=1?1:0));
 }
 function bnProgress(c,t){
 if(!t)return 0;
@@ -6448,10 +6554,13 @@ return n;
 function achView(c,legacy){
 const got=legacy?.ach??{};
 const list=ACH.map((a)=>({id:a.id,name:a.name,desc:a.desc,ls:a.ls??0,wu:a.wu??0,title:a.title??null,done:!!got[a.id]}));
-return{list,done:list.filter((a)=>a.done).length,total:ACH.length,titles:list.filter((a)=>a.done&&a.title).map((a)=>({id:a.id,title:a.title})),cur:c.title??null};
+const titles=list.filter((a)=>a.done&&a.title).map((a)=>({id:a.id,title:a.title}));
+if((c.vip|0)>=2)titles.unshift({id:"vip",title:`${["", "", "黄金", "钻石", "王者"][c.vip | 0]}道友`});
+return{list,done:list.filter((a)=>a.done).length,total:ACH.length,titles,cur:c.title??null};
 }
 function setAchTitle(c,legacy,id){
 if(id===null||id===undefined||id===""||id==="null"){c.title=null;return{ok:true,msg:"已摘下称号"};}
+if(String(id)==="vip"){if((c.vip|0)<2)return{ok:false,msg:"黄金会员方可佩戴"};c.title=`${["", "", "黄金", "钻石", "王者"][c.vip | 0]}道友`;return{ok:true,msg:`称号已改为「${c.title}」`};}
 const a=achOf(String(id));
 if(!a||!a.title)return{ok:false,msg:"无此称号"};
 if(!(legacy?.ach??{})[a.id])return{ok:false,msg:"尚未达成此成就"};
@@ -6769,7 +6878,7 @@ const steps=tutSteps(c);
 for(const s of steps)if(s.done&&!s.paid){c.tut[s.k]=1;c.ls+=TUT_REWARD;notes.push({k:"tut",v:`初入仙途 · ${s.name}，灵石 +${TUT_REWARD}`});}
 if(steps.every((s)=>s.done)){c.tutDone=true;c.ls+=TUT_BONUS;notes.push({k:"tut",v:`初入仙途圆满，灵石 +${TUT_BONUS}。此后：筑基渡劫后择道途，金丹后可兼修副业、开宗立派。`});}
 }
-const shopReInfo=(c)=>({left:Math.max(0,SHOP_REFRESH_DAILY-(c.daily.shopRe??0)),cost:refreshCost(c)});
+const shopReInfo=(c)=>({left:Math.max(0,shopReLimit(c)-(c.daily.shopRe??0)),cost:refreshCost(c)});
 
 const energyBalance=async(api)=>{try{return(await api.points.balance())|0;}catch{return 0;}};
 function homeView(c,shared,now){
@@ -6792,7 +6901,7 @@ switch(tab){
 case "home":return{home:homeView(c,shared,now)};
 case "explore":return{regions:regionsView(c),event:eventView(c,deriveStats(c)),daily:EXPLORE_DAILY,...(sub==="dg"?{dg:dungeonView(c,shared,now)}:{})};
 case "bag":return{inv:inventoryView(c),skills:ART_VIEW(c),recipes:recipesView(c),...(sub==="pet"?{pet:petView(c,deriveStats(c),now)}:{}),...(String(sub??"").startsWith("ref_")?{refine:refineView(c,Number(String(sub).slice(4)))}:{})};
-case "market":return{shop:shopView(c,dayKey(now)),auctions:auctionsView(c,shared,now),shopRe:shopReInfo(c)};
+case "market":return{shop:shopView(c,dayKey(now)),auctions:auctionsView(c,shared,now),shopRe:shopReInfo(c),vshop:vshopView(c,dayKey(now))};
 case "arena":return{arena:{list:candidates(c,shared,now),left:ARENA_DAILY-c.daily.arena,refresh:3-(c.daily.arenaRefresh??0),season:c.season,standings:standings(shared,seasonOf(now).n).slice(0,10)},boss:{world:worldView(shared,now),board:bossBoard(shared,dayKey(now)).slice(0,10),left:BOSS_DAILY-c.daily.boss,mine:bossMine(shared,dayKey(now),c.uid)?.d??0},...(sub==="wx"?{wx:wuxingView(c,shared,now)}:{})};
 case "sect":return{sect:c.sect?sectView(c,shared,c.sect,now):null,list:sectList(shared).slice(0,15),cost:5000,sboss:c.sect?sectBossBoard(shared,c.sect,weekKey(now)):null};
 case "lb":return{};
@@ -6847,6 +6956,7 @@ if(c&&artsRec&&Array.isArray(artsRec.list))c.inv.arts=artsRec.list;
 let legacy=(await api.kv.get("legacy"))??{pts:0,lives:0,awards:{},keep:{},best:{r:0,s:0},history:[]};
 let bio=trimBio((await api.kv.get("bio"))??[]);
 ensureTick(shared,now,effects);
+if(c)c.vip=vipLevel(legacy.en|0); 
 
 if(!c||c.v!==1){
 if(method==="create"){
@@ -6974,20 +7084,23 @@ break;
 case "recipes":data={recipes:recipesView(c),inv:inventoryView(c)};break;
 case "craft":res=craft(c,String(params.id??""),rng());data={recipes:recipesView(c),inv:inventoryView(c)};break;
 
-case "shop":data={shop:shopView(c,dayKey(now)),auctions:auctionsView(c,shared,now),shopRe:shopReInfo(c)};break;
+case "shop":data={shop:shopView(c,dayKey(now)),auctions:auctionsView(c,shared,now),shopRe:shopReInfo(c),vshop:vshopView(c,dayKey(now))};break;
 case "buy":res=buy(c,params.idx,dayKey(now),rng());data={shop:shopView(c,dayKey(now))};break;
-case "shop.refresh":res=shopRefresh(c);data={shop:shopView(c,dayKey(now)),auctions:auctionsView(c,shared,now),shopRe:shopReInfo(c)};break;
-case "energy":data={energy:energyView(c,await energyBalance(api))};break;
+case "shop.refresh":res=shopRefresh(c);data={shop:shopView(c,dayKey(now)),auctions:auctionsView(c,shared,now),shopRe:shopReInfo(c),vshop:vshopView(c,dayKey(now))};break;
+case "energy":data={energy:{...energyView(c,await energyBalance(api)),vip:vipView(c,legacy)}};break;
 case "energy.offer":{
 const bal=await energyBalance(api);
-res=offerEnergy(c,bal,params.n);
+res=offerEnergy(c,bal,params.n,legacy);
+if(res.ok){legacyDirty=true;c.vip=vipLevel(legacy.en|0);}
 if(res.effect)effects.push(res.effect); 
-data={energy:energyView(c,bal-(res.ok?Math.max(1,Math.floor(Number(params.n)||0)):0))};
+data={energy:{...energyView(c,bal-(res.ok?Math.max(1,Math.floor(Number(params.n)||0)):0)),vip:vipView(c,legacy)}};
 break;
 }
 case "auction.create":res=createAuction(c,shared,now,params.item,params.min,effects);data={auctions:auctionsView(c,shared,now),inv:inventoryView(c)};break;
 case "auction.bid":res=bid(c,shared,now,String(params.aid??""),params.amt,effects);data={auctions:auctionsView(c,shared,now)};break;
 case "auctions":data={auctions:auctionsView(c,shared,now)};break;
+case "vshop":data={vshop:vshopView(c,dayKey(now))};break;
+case "vshop.buy":res=vshopBuy(c,params.idx,dayKey(now),rng());data={vshop:vshopView(c,dayKey(now)),inv:inventoryView(c)};break;
 
 case "arena":data={arena:{list:candidates(c,shared,now),left:ARENA_DAILY-c.daily.arena,refresh:3-(c.daily.arenaRefresh??0),season:c.season,defLog:c.defLog??[],standings:standings(shared,seasonOf(now).n).slice(0,20)}};break;
 case "arena.refresh":res=refresh(c);data={arena:{list:candidates(c,shared,now),left:ARENA_DAILY-c.daily.arena,refresh:3-(c.daily.arenaRefresh??0),season:c.season}};break;

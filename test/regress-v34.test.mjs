@@ -68,7 +68,7 @@ test("能量供奉：用 points.spend 真扣能量，每日封顶，余额不够
   // 平台要的是 points.spend + label + 幂等 request_id，不是负数 award（实测负数会被整批拒）
   const sp = s.log.filter((x) => x.spend).at(-1);
   assert.ok(sp && sp.spend.type === "points.spend" && sp.spend.amount === 2, "用的是 points.spend 正数");
-  assert.match(sp.spend.request_id, /^wd-3-\d+$/, "每笔一个幂等键");
+  assert.match(sp.spend.request_id, /^wd-3-\d+-\d+$/, "每笔一个幂等键（含转世次数）");
   assert.ok(sp.spend.label.length >= 1 && sp.spend.label.length <= 100, "label 必须 1-100 字");
   // 每日封顶
   const over = await s.call(3, "energy.offer", { n: ENERGY_DAILY });
