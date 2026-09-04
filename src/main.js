@@ -84,6 +84,14 @@ effects.push({type:"kv.shared.delete",key});
 
 
 const SHARED_KEY_CAP=100;
+
+
+function utf8Len(s){
+let n=0;
+for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);n+=c<0x80?1:c<0x800?2:c>=0xd800&&c<0xdc00?4:c>=0xdc00&&c<0xe000?0:3;}
+return n;
+}
+const BUCKET_BYTES=7400;
 function setSharedSoft(effects,shared,key,value,margin=3){
 if(!shared.has(key)&&shared.size>=SHARED_KEY_CAP-margin)return false;
 setShared(effects,key,value);
@@ -6620,7 +6628,8 @@ if(room()<4)return;
 
 
 if(!shared.has(bk)){
-if(shared.size>=JAN_KEY_CAP||(tight&&newBuckets>=1))return;
+
+if(shared.size>=JAN_KEY_CAP-3||(tight&&newBuckets>=1))return;
 newBuckets++;
 }
 const cur=shared.get(bk)?.d??{};
@@ -6639,7 +6648,9 @@ const kv=keep(v,u);
 if(kv&&(!next[u]||age(kv)>age(next[u]))){next[u]=kv;changed=true;}
 }
 
-while(JSON.stringify({d:next}).length>7400){
+
+
+while(utf8Len(JSON.stringify({d:next}))>BUCKET_BYTES){
 let old=null;
 for(const u of Object.keys(next)){
 if(next[u].asc||leaders.has(u))continue;

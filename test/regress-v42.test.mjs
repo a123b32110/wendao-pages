@@ -97,3 +97,21 @@ test("补偿礼包：转过世的账号哪怕这一世是新建的也算老玩�
   v = await s.call(5, "home");
   assert.ok(v.gift, "转过世的账号照领");
 });
+
+test("v44 折叠桶按 UTF-8 字节而不是字符数守 8KB：一桶中文名的落槌拍品也装不爆", async () => {
+  const { utf8Len } = await import("../lib/game/shared.js");
+  assert.equal(utf8Len("a中😀"), 1 + 3 + 4);
+  const s = new Site();
+  await s.call(1, "boot", {}); await s.call(1, "create", { name: "卖家" });
+  s.setChar(1, (c) => { c.created = Date.UTC(2026, 8, 10); });
+  // 直接往共享区塞 60 件已落槌、名字很长的拍品（同一卖家 → 同一个桶）
+  for (let i = 1; i <= 60; i++) s.shared.set(`auction:1:${i}`, { aid: `1:${i}`, uid: 1, n: "青云山紫霄宫掌门", min: 100, end: s.now - 3600e3 * i, t: s.now - 3600e3 * (i + 24), item: { k: "art", id: "f_tiejian", name: "太上玄元九转诛仙剑", q: 5, t: 0, slot: "w", af: [{ st: "atk", v: 99, n: "锋锐无双" }, { st: "crit", v: 0.05, n: "凌厉刺骨" }], rn: [] }, settled: { winner: 2, wname: "北冥寒渊散修某某人", price: 12345 } });
+  s.advance(60_000); await s.tick();
+  s.advance(10 * 60_000); await s.tick();
+  const b = s.shared.get(auxKey(1));
+  assert.ok(b && Object.keys(b.d).length > 5, "折进桶了");
+  assert.ok(utf8Len(JSON.stringify(b)) <= 8192, `桶 ${utf8Len(JSON.stringify(b))} 字节，超过平台单值上限`);
+  // 挤出去的是落槌最早的
+  const kept = Object.keys(b.d).map((k) => Number(k.split(":")[1]));
+  assert.equal(Math.min(...kept), 1, "留下的是最近落槌的（编号小 = end 大）");
+});
